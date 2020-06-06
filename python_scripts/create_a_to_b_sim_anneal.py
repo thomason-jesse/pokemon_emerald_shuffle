@@ -10,6 +10,9 @@ import sys
 # Paths.
 base_stats_orig_fn = 'orig/base_stats.h'
 evolution_fn = '../src/data/pokemon/evolution.h'
+trainer_parties_fn = 'orig/trainer_parties.h'
+wild_encounters_fn = 'orig/wild_encounters.h'
+
 
 # Metadata consts.
 int_data = ['baseHP', 'baseAttack', 'baseDefense', 'baseSpeed', 'baseSpAttack',
@@ -24,7 +27,8 @@ stat_coeff = 1  # 1 abs difference between stats penalty.
 evol_coeff = 500  # 100 points penalty for a mismatched evolution.
 type_coeff = 100  # 10 points penalty for mismatched rough type->type map.
 swaps_for_neighbor = 1  # how many assignment swaps to perform per iteration.
-
+starter_species = ['SPECIES_TREECKO', 'SPECIES_TORCHIC', 'SPECIES_MUDKIP']
+assignment_beam = 10  # how many assignments to try in analytical solution.
 
 def get_a_to_b_penalty(a, b, mon_map, mon_metadata, mon_evolution, type_map):
     # Penalize the stat total difference between a and b with abs.
@@ -65,14 +69,15 @@ def get_a_to_b_penalty(a, b, mon_map, mon_metadata, mon_evolution, type_map):
             type_map[mon_metadata[a][type_str]] == mon_metadata[a][type_str]):
             tp += 1
 
-    return (sp * stat_coeff) + (ep * evol_coeff) + (tp * type_coeff), sp, ep, tp
+    total_penalty = (sp * stat_coeff) + (ep * evol_coeff) + (tp * type_coeff)
+    return total_penalty, sp, ep, tp
 
 
 def score_map(mon_map, mon_list, type_list, mon_metadata, mon_evolution, as_exp_str=False):
 
     # First, build type confusion matrix.
     type_to_type_counts = [[0 for t1 in type_list] for t2 in type_list]
-    for a in mon_list:
+    for a in mon_map:
         b = mon_map[a]
         type_to_type_counts[type_list.index(mon_metadata[a]["type1"])][type_list.index(mon_metadata[b]["type1"])] += 1
         type_to_type_counts[type_list.index(mon_metadata[a]["type2"])][type_list.index(mon_metadata[b]["type2"])] += 1
@@ -146,6 +151,62 @@ def score_map(mon_map, mon_list, type_list, mon_metadata, mon_evolution, as_exp_
     return penalty, penalty_per_mon
 
 
+def make_assignment_and_propagate(a_to_b_penalty, dom_idx, img_jdx, type_map,
+                                  mon_map, mon_image, mon_list, mon_evolution, mon_metadata,
+                                  debug=False):
+    penalty_added = 0
+
+    mon_map[mon_list[dom_idx]] = mon_list[img_jdx]  # assignment
+    if debug:
+        print("%s->%s (p=%d)" % (mon_list[dom_idx], mon_list[img_jdx], a_to_b_penalty[dom_idx, img_jdx]))
+    penalty_added += a_to_b_penalty[dom_idx, img_jdx]
+    mon_image.add(mon_list[img_jdx])
+    # If a and b both evolve, force evolution mapping.
+    propagate_evol = True
+    while propagate_evol:
+        a_evols = mon_evolution[mon_list[dom_idx]] if mon_list[dom_idx] in mon_evolution else []
+        b_evols = mon_evolution[mon_list[img_jdx]] if mon_list[img_jdx] in mon_evolution else []
+        a_evols = [a for a in a_evols if a not in mon_map]
+        b_evols = [b for b in b_evols if b not in mon_image]
+        if len(a_evols) > 0 and len(b_evols) > 0:
+            # Find best map among candidates.
+            best_a = best_b = None
+            best_p = None
+            for a in a_evols:
+                for b in b_evols:
+                    new_p = a_to_b_penalty[mon_list.index(a), mon_list.index(b)]
+                    if best_p is None or new_p < best_p:
+                        best_p = new_p
+                        best_a = a
+                        best_b = b
+            dom_idx = mon_list.index(best_a)
+            img_jdx = mon_list.index(best_b)
+            mon_map[mon_list[dom_idx]] = mon_list[img_jdx]  # assignment
+            if debug:
+                print("%s->%s (p=%d)" % (mon_list[dom_idx], mon_list[img_jdx], a_to_b_penalty[dom_idx, img_jdx]))
+            penalty_added += a_to_b_penalty[dom_idx, img_jdx]
+            mon_image.add(mon_list[img_jdx])
+        else:
+            propagate_evol = False
+    # Update evolution penalties by recalculating matrix.
+    # TODO: this can be made more efficient by in-place updates.
+    n_mon = len(mon_list)
+    for idx in range(n_mon):
+        a = mon_list[idx]
+        for jdx in range(n_mon):
+            b = mon_list[jdx]
+            if a in mon_map or b in mon_image:
+                mon_penalty = float("inf")  # already assigned
+            else:
+                mon_penalty, _, _, _ = get_a_to_b_penalty(a, b, mon_map, 
+                                                          mon_metadata,
+                                                          mon_evolution, type_map)
+            a_to_b_penalty[idx, jdx] = mon_penalty
+    # if debug:
+        # print("\tpenalty added %d" % penalty_added)
+    return penalty_added
+
+
 def main(args):
 
     # Read in mon metadata.
@@ -176,6 +237,8 @@ def main(args):
                     if data_name == "type1" or data_name == "type2":
                         if data_str not in type_list:
                             type_list.append(data_str)
+    mon_list = list(mon_metadata.keys())
+    n_mon = len(mon_list)
     print("Read in %d mon metadata and %d types" % (len(mon_metadata), len(type_list)))
 
     # Read in mon evolution chart.
@@ -198,8 +261,18 @@ def main(args):
                 mon_evolution[curr_mon].append(species_b)
     print("Read in %d mon evolutions" % len(mon_evolution))
 
+    # Read in wild and trainer files to determine mon importance.
+    print("Counting up number of appearances in-game...")
+    mon_n_appearances = [0] * n_mon
+    for fn in [trainer_parties_fn, wild_encounters_fn]:
+        with open(fn, 'r') as f:
+            d = f.read()
+            for idx in range(n_mon):
+                mon_n_appearances[idx] += d.count(mon_list[idx])
+    print("... done; counted %d instances from %d to %d" % (sum(mon_n_appearances),
+        min(mon_n_appearances), max(mon_n_appearances)))
+
     # Perform simulated annealing over an analytically chosen, greedy initial assignment.
-    mon_list = list(mon_metadata.keys())
     mon_map = {}
 
     # First, assign a random type -> type map.
@@ -224,55 +297,57 @@ def main(args):
                                                       mon_metadata, mon_evolution, type_map)
             a_to_b_penalty[idx, jdx] = mon_penalty
 
-    # Greedily select the current least penalty assignment and make it until finished.
+    # Initially, assign A -> B map in order of A's importance, minimizing B assignments per.
     mon_image = set()
-    for _ in range(n_mon):
+    for s in starter_species:  # Ensure starters are assigned first.
+        mon_n_appearances[mon_list.index(s)] += max(mon_n_appearances)
+    mon_by_importance = [mon_list[idx] for idx in
+                         sorted(range(n_mon), key=lambda k:mon_n_appearances[k], reverse=True)]
+    print("... First, assigning by importance (ranked list of mon appearance in-game)...")
+    for a in mon_by_importance:
+        dom_idx = mon_list.index(a)
+        if a in mon_evolution:  # need to run beam search rather than taking the single best.
+            k = assignment_beam
+        else:
+            k = 1
+        best_jdx = None
+        lowest_penalty = None
+        kidxs = np.argpartition(a_to_b_penalty[dom_idx], k)[:k]  #get k min jdxs
+        for kidx in kidxs:
+            if a_to_b_penalty[dom_idx, kidx] == float("inf"):
+                break
+            ab_p_copy = a_to_b_penalty.copy()
+            image_copy = mon_image.copy()
+            mon_map_copy = {m: mon_map[m] for m in mon_map}
+            # print("\tbeam try %s->%s (%d)" % (mon_list[dom_idx], mon_list[kidx], a_to_b_penalty[dom_idx, kidx]))  # DEBUG
+            kidx_p = make_assignment_and_propagate(ab_p_copy, dom_idx, kidx, type_map,
+                                                   mon_map_copy, image_copy, mon_list,
+                                                   mon_evolution, mon_metadata)
+            if best_jdx is None or kidx_p < lowest_penalty:
+                best_jdx = kidx
+                lowest_penalty = kidx_p
+        if best_jdx is not None:
+            make_assignment_and_propagate(a_to_b_penalty, dom_idx, best_jdx, type_map,
+                                          mon_map, mon_image, mon_list, mon_evolution, mon_metadata,
+                                          debug=True)
+        # else:
+            # print("Warning: could not assign %s during importance phase" % a)
+    print("...... done")
+
+    # For remainder, greedily select the current least penalty assignment 
+    # and make it until finished.
+    print("... Now assigning remainder based on minimizing penalty only...")
+    all_assigned = len(set(mon_map.keys()).intersection(set(mon_list))) == len(mon_list)
+    while not all_assigned:
         min_idx_jdx = np.argmin(a_to_b_penalty)
         dom_idx, img_jdx = int(min_idx_jdx // n_mon), int(min_idx_jdx % n_mon)
-        mon_map[mon_list[dom_idx]] = mon_list[img_jdx]  # assignment
-        # print("%s->%s (p=%d)" % (mon_list[dom_idx], mon_list[img_jdx], a_to_b_penalty[dom_idx, img_jdx]))
-        mon_image.add(mon_list[img_jdx])
-        # If a and b both evolve, force evolution mapping.
-        propagate_evol = True
-        while propagate_evol:
-            a_evols = mon_evolution[mon_list[dom_idx]] if mon_list[dom_idx] in mon_evolution else []
-            b_evols = mon_evolution[mon_list[img_jdx]] if mon_list[img_jdx] in mon_evolution else []
-            a_evols = [a for a in a_evols if a not in mon_map]
-            b_evols = [b for b in b_evols if b not in mon_image]
-            if len(a_evols) > 0 and len(b_evols) > 0:
-                # Find best map among candidates.
-                best_a = best_b = None
-                best_p = None
-                for a in a_evols:
-                    for b in b_evols:
-                        new_p = a_to_b_penalty[mon_list.index(a), mon_list.index(b)]
-                        if best_p is None or new_p < best_p:
-                            best_p = new_p
-                            best_a = a
-                            best_b = b
-                dom_idx = mon_list.index(best_a)
-                img_jdx = mon_list.index(best_b)
-                mon_map[mon_list[dom_idx]] = mon_list[img_jdx]  # assignment
-                # print("%s->%s (p=%d)" % (mon_list[dom_idx], mon_list[img_jdx], a_to_b_penalty[dom_idx, img_jdx]))
-                mon_image.add(mon_list[img_jdx])
-            else:
-                propagate_evol = False
-        # Update evolution penalties by recalculating matrix.
-        # TODO: this can be made more efficient by in-place updates.
-        for idx in range(n_mon):
-            a = mon_list[idx]
-            for jdx in range(n_mon):
-                b = mon_list[jdx]
-                if a in mon_map or b in mon_image:
-                    mon_penalty = float("inf")  # already assigned
-                else:
-                    mon_penalty, _, _, _ = get_a_to_b_penalty(a, b, mon_map, 
-                                                              mon_metadata,
-                                                              mon_evolution, type_map)
-                a_to_b_penalty[idx, jdx] = mon_penalty
+        make_assignment_and_propagate(a_to_b_penalty, dom_idx, img_jdx, type_map,
+                                      mon_map, mon_image, mon_list, mon_evolution, mon_metadata)
+        all_assigned = len(set(mon_map.keys()).intersection(set(mon_list))) == len(mon_list)
 
     curr_penalty, curr_mon_penalty = score_map(mon_map, mon_list, type_list,
                                                mon_metadata, mon_evolution)
+    print("...... done")
     print("... done; init penalty %.2f" % curr_penalty)
 
     # Perform simulated annealing.
