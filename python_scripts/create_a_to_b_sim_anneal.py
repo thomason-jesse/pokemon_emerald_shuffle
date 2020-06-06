@@ -1,0 +1,322 @@
+import argparse
+import json
+import math
+import numpy as np
+import os
+import random
+import sys
+
+
+# Paths.
+base_stats_orig_fn = 'orig/base_stats.h'
+evolution_fn = '../src/data/pokemon/evolution.h'
+
+# Metadata consts.
+int_data = ['baseHP', 'baseAttack', 'baseDefense', 'baseSpeed', 'baseSpAttack',
+            'baseSpDefense', 'catchRate', 'expYield', 'evYield_HP', 'evYield_Attack',
+            'evYield_Defense', 'evYield_Speed', 'evYield_SpAttack', 'evYield_SpDefense',
+            'eggCycles', 'friendship', 'safariZoneFleeRate']
+
+# Simulated annealing and scoring hyperparameters.
+max_iterations = 100000
+print_every_n_iterations = max_iterations / 10
+stat_coeff = 1  # 1 abs difference between stats penalty.
+evol_coeff = 500  # 100 points penalty for a mismatched evolution.
+type_coeff = 100  # 10 points penalty for mismatched rough type->type map.
+swaps_for_neighbor = 1  # how many assignment swaps to perform per iteration.
+
+
+def get_a_to_b_penalty(a, b, mon_map, mon_metadata, mon_evolution, type_map):
+    # Penalize the stat total difference between a and b with abs.
+    if a != b:
+        sp = sum([abs(mon_metadata[a][s] - mon_metadata[b][s])
+                  for s in ['baseHP', 'baseAttack', 'baseDefense',
+                            'baseSpeed', 'baseSpAttack', 'baseSpDefense']])
+    else:  # Full stat penalty for mapping a mon to itself.
+        sp = sum([mon_metadata[a][s]
+                  for s in ['baseHP', 'baseAttack', 'baseDefense',
+                            'baseSpeed', 'baseSpAttack', 'baseSpDefense']])
+
+    # Penalize inconsistency of evolution form.
+    # Bulb -> Char
+    # Ivy -> Charm
+    # Ven -> Charz
+    ep = 0
+    if a in mon_evolution:
+        if b in mon_evolution:
+            a_evols = mon_evolution[a]
+            a_evols_mapped = [mon_map[a_evols[idx]] if a_evols[idx] in mon_map else None
+                              for idx in range(len(a_evols))]
+            match = False
+            for idx in range(len(a_evols_mapped)):
+                if a_evols_mapped[idx] is None or a_evols_mapped[idx] in mon_evolution[b]:
+                    match = True
+                    break
+            if not match:
+                ep = 1
+        else:
+            ep = 1
+
+    # Penalize rough type map mismatch.
+    tp = 0
+    for type_str in ["type1", "type2"]:
+        if (mon_metadata[b][type_str] != type_map[mon_metadata[a][type_str]] or
+            # Penalize for mismatch in mapping (above) or mapping a type to itself (below).
+            type_map[mon_metadata[a][type_str]] == mon_metadata[a][type_str]):
+            tp += 1
+
+    return (sp * stat_coeff) + (ep * evol_coeff) + (tp * type_coeff), sp, ep, tp
+
+
+def score_map(mon_map, mon_list, type_list, mon_metadata, mon_evolution, as_exp_str=False):
+
+    # First, build type confusion matrix.
+    type_to_type_counts = [[0 for t1 in type_list] for t2 in type_list]
+    for a in mon_list:
+        b = mon_map[a]
+        type_to_type_counts[type_list.index(mon_metadata[a]["type1"])][type_list.index(mon_metadata[b]["type1"])] += 1
+        type_to_type_counts[type_list.index(mon_metadata[a]["type2"])][type_list.index(mon_metadata[b]["type2"])] += 1
+   # Normalize.
+    for idx in range(len(type_list)):
+        type_to_type_counts[idx] = [float(type_to_type_counts[idx][jdx]) / sum(type_to_type_counts[idx])
+                                    for jdx in range(len(type_list))]
+   # Assign apparent type map maxes.
+    rough_type_to_type = {}
+    not_in_domain = type_list[:]
+    not_in_range = type_list[:]
+    maxmax = 0
+    for _  in range(len(type_list)):
+        maxes = [max(type_to_type_counts[idx]) for idx in range(len(type_list))]
+        maxmax = max(maxes)
+        idx_to_assign = np.argmax(maxes)
+        candidates = [jdx for jdx in range(len(type_list))
+                      if np.isclose(type_to_type_counts[idx_to_assign][jdx], 
+                                    maxes[idx_to_assign])]
+        jdx_assigned = random.choice(candidates)
+        rough_type_to_type[type_list[idx_to_assign]] = type_list[jdx_assigned]
+        # print("%.2f %s->%s" % (maxmax, type_list[idx_to_assign], type_list[jdx_assigned]))
+        del not_in_domain[not_in_domain.index(type_list[idx_to_assign])]
+        del not_in_range[not_in_range.index(type_list[jdx_assigned])]
+        # Remove these entries from the count structure.
+        type_to_type_counts[idx_to_assign] = [-1 for jdx in range(len(type_list))]
+        for idx in range(len(type_list)):
+            type_to_type_counts[idx][jdx_assigned] = -1
+    for idx in range(len(not_in_domain)):
+        rough_type_to_type[not_in_domain[idx]] = not_in_range[idx]
+        # print("final %s->%s" % (not_in_domain[idx], not_in_range[idx]))
+
+    # Show rough type to type map.
+    exp_str = ''
+    if as_exp_str:
+        exp_str += "Type->Type\n"
+        for idx in range(len(type_list)):
+            exp_str += '%s->%s\n' % (type_list[idx], rough_type_to_type[type_list[idx]])
+        exp_str += '\n'
+
+    # Now, pan over all the mappings and calculate the penalty per with explanation.
+    penalty = 0
+    penalty_per_mon = [0 for _ in range(len(mon_list))]
+    spt, ept, tpt = 0, 0, 0
+    if as_exp_str:
+        exp_str += "Mon->Mon\n"
+    for mon_idx in range(len(mon_list)):
+        a = mon_list[mon_idx]
+        b = mon_map[a]
+
+        mon_penalty, sp, ep, tp = get_a_to_b_penalty(a, b, mon_map, mon_metadata,
+                                                     mon_evolution, rough_type_to_type)
+        
+        penalty += mon_penalty
+        penalty_per_mon[mon_idx] += mon_penalty
+        spt += sp * stat_coeff
+        ept += ep * evol_coeff
+        tpt += tp * type_coeff
+
+        if as_exp_str:
+            exp_str += "%s->%s\t\tsp=%.2f(%.2f)\tep=%d(%d)\ttp=%d(%d)\n" % (a, b,
+                sp, sp * stat_coeff,
+                ep, ep * evol_coeff,
+                tp, tp * type_coeff)
+
+    if as_exp_str:
+        exp_str += "\nPenalty total: %d\tspt=%d(%.2f)\tept=%d(%.2f)\ttpt=%d(%.2f)" % (penalty,
+            spt, spt / float(penalty), ept, ept / float(penalty), tpt, tpt / float(penalty))
+        return exp_str
+
+    return penalty, penalty_per_mon
+
+
+def main(args):
+
+    # Read in mon metadata.
+    mon_metadata = {}
+    type_list = []
+    with open(base_stats_orig_fn, 'r') as f:
+        curr_mon = None
+        for line in f.readlines():
+            if "SPECIES_" in line:
+                #     [SPECIES_BULBASAUR] =\n
+                ps = line.split("SPECIES_")
+                mon = ps[1][:ps[1].index(']')]
+                ps_close = ps[1][ps[1].index(']'):]
+                if ps[0] == "    [" and ps_close == "] =\n":
+                    species_mon = "SPECIES_%s" % mon
+                    mon_metadata[species_mon] = {}
+                    curr_mon = species_mon
+            elif curr_mon is not None:
+                if "=" in line:
+                    #         .baseHP        = 45,\n
+                    ps = line.strip().split("=")
+                    data_name = ps[0].strip().strip('.')
+                    data_str = ps[1].strip().strip(',')
+                    if data_name in int_data:
+                        mon_metadata[curr_mon][data_name] = int(data_str)
+                    else:
+                        mon_metadata[curr_mon][data_name] = data_str
+                    if data_name == "type1" or data_name == "type2":
+                        if data_str not in type_list:
+                            type_list.append(data_str)
+    print("Read in %d mon metadata and %d types" % (len(mon_metadata), len(type_list)))
+
+    # Read in mon evolution chart.
+    mon_evolution = {}
+    with open(evolution_fn, 'r') as f:
+        curr_mon = None
+        for line in f.readlines()[2:-1]:
+            if "=" in line:
+                #     [SPECIES_BULBASAUR]  = {{EVO_LEVEL, 16, SPECIES_IVYSAUR}},\n
+                ps = line.split("=")
+                species_a = ps[0].strip().strip('[]')
+                species_b = ps[1].split(',')[2].strip().strip('{}')
+                curr_mon = species_a
+                if species_a not in mon_evolution:
+                    mon_evolution[species_a] = []
+                mon_evolution[species_a].append(species_b)
+            else:
+                #                             {EVO_ITEM, ITEM_SUN_STONE, SPECIES_BELLOSSOM}},
+                species_b = line.strip().split(',')[2].strip().strip('{}')
+                mon_evolution[curr_mon].append(species_b)
+    print("Read in %d mon evolutions" % len(mon_evolution))
+
+    # Perform simulated annealing over an analytically chosen, greedy initial assignment.
+    mon_list = list(mon_metadata.keys())
+    mon_map = {}
+
+    # First, assign a random type -> type map.
+    type_map = {}
+    idxs = list(range(len(type_list)))
+    while np.any([idx == idxs[idx] for idx in range(len(type_list))]):
+        random.shuffle(idxs)
+    print("Random initial type map:")
+    for idx in range(len(type_list)):
+        type_map[type_list[idx]] = type_list[idxs[idx]]
+        print("\t%s->%s" % (type_list[idx], type_list[idxs[idx]]))
+
+    # Create an initial penalty weights matrix.
+    print("Running greedy solver given type map...")
+    n_mon = len(mon_list)
+    a_to_b_penalty = np.zeros(shape=(n_mon, n_mon))
+    for idx in range(n_mon):
+        a = mon_list[idx]
+        for jdx in range(n_mon):
+            b = mon_list[jdx]
+            mon_penalty, _, _, _ = get_a_to_b_penalty(a, b, mon_map, 
+                                                      mon_metadata, mon_evolution, type_map)
+            a_to_b_penalty[idx, jdx] = mon_penalty
+
+    # Greedily select the current least penalty assignment and make it until finished.
+    mon_image = set()
+    for _ in range(n_mon):
+        min_idx_jdx = np.argmin(a_to_b_penalty)
+        dom_idx, img_jdx = int(min_idx_jdx // n_mon), int(min_idx_jdx % n_mon)
+        mon_map[mon_list[dom_idx]] = mon_list[img_jdx]  # assignment
+        # print("%s->%s (p=%d)" % (mon_list[dom_idx], mon_list[img_jdx], a_to_b_penalty[dom_idx, img_jdx]))
+        mon_image.add(mon_list[img_jdx])
+        # If a and b both evolve, force evolution mapping.
+        propagate_evol = True
+        while propagate_evol:
+            a_evols = mon_evolution[mon_list[dom_idx]] if mon_list[dom_idx] in mon_evolution else []
+            b_evols = mon_evolution[mon_list[img_jdx]] if mon_list[img_jdx] in mon_evolution else []
+            a_evols = [a for a in a_evols if a not in mon_map]
+            b_evols = [b for b in b_evols if b not in mon_image]
+            if len(a_evols) > 0 and len(b_evols) > 0:
+                # Find best map among candidates.
+                best_a = best_b = None
+                best_p = None
+                for a in a_evols:
+                    for b in b_evols:
+                        new_p = a_to_b_penalty[mon_list.index(a), mon_list.index(b)]
+                        if best_p is None or new_p < best_p:
+                            best_p = new_p
+                            best_a = a
+                            best_b = b
+                dom_idx = mon_list.index(best_a)
+                img_jdx = mon_list.index(best_b)
+                mon_map[mon_list[dom_idx]] = mon_list[img_jdx]  # assignment
+                # print("%s->%s (p=%d)" % (mon_list[dom_idx], mon_list[img_jdx], a_to_b_penalty[dom_idx, img_jdx]))
+                mon_image.add(mon_list[img_jdx])
+            else:
+                propagate_evol = False
+        # Update evolution penalties by recalculating matrix.
+        # TODO: this can be made more efficient by in-place updates.
+        for idx in range(n_mon):
+            a = mon_list[idx]
+            for jdx in range(n_mon):
+                b = mon_list[jdx]
+                if a in mon_map or b in mon_image:
+                    mon_penalty = float("inf")  # already assigned
+                else:
+                    mon_penalty, _, _, _ = get_a_to_b_penalty(a, b, mon_map, 
+                                                              mon_metadata,
+                                                              mon_evolution, type_map)
+                a_to_b_penalty[idx, jdx] = mon_penalty
+
+    curr_penalty, curr_mon_penalty = score_map(mon_map, mon_list, type_list,
+                                               mon_metadata, mon_evolution)
+    print("... done; init penalty %.2f" % curr_penalty)
+
+    # Perform simulated annealing.
+    print("Running simulated annealing to tune the solution...")
+    for i in range(max_iterations):
+        t = math.log(float(max_iterations) / (i + 1)) + 1
+        if i % print_every_n_iterations == 0:
+            print("%d/%d; t %.5f; penalty %.2f" % (i, max_iterations, t, curr_penalty))
+            with open("%s.%d" % (args.output_fn, i), 'w') as f:
+                f.write(score_map(mon_map, mon_list, type_list, mon_metadata, mon_evolution,
+                                  as_exp_str=True))
+
+        # Create a nearest neighbor assignment.
+        neighbor = {a: mon_map[a] for a in mon_map}
+        for _ in range(swaps_for_neighbor):
+            # select (a -> b & c -> d) to create (a -> d & c -> b)
+            a, c = random.choices(mon_list, weights=curr_mon_penalty, k=2)
+            b, d = neighbor[a], neighbor[c]
+            neighbor[a] = d
+            neighbor[c] = b
+        
+        # Score the neighbor and accept it based on temp.
+        neighbor_penalty, n_mon_penalty = score_map(neighbor, mon_list, type_list,
+                                                    mon_metadata, mon_evolution)
+        if (neighbor_penalty < curr_penalty or 
+            random.random() < math.exp((curr_penalty - neighbor_penalty) / t)):
+            mon_map = neighbor
+            curr_penalty = neighbor_penalty
+            curr_mon_penalty = n_mon_penalty
+    print("... done; final penalty %.2f" % curr_penalty)
+
+    # Write the result.
+    print("Writing to file...")
+    with open(args.output_fn, 'w') as f:
+        for a in mon_map:
+            f.write("%s->%s\n" % (a, mon_map[a]))
+    print("... done")
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description='Write an A to B mon map.')
+    parser.add_argument('--output_fn', type=str, required=True,
+                        help='the output file for the mon map')
+    args = parser.parse_args()
+
+
+    main(args)
