@@ -12,27 +12,27 @@ starter_choose_orig_fn = 'orig/starter_choose.c'
 starter_choose_target_fn = '../src/starter_choose.c'
 
 # Lendary encounter path orig -> target files.
-legendary_fn = {"SPECIES_REGIROCK": ['SPECIES_REGIROCK_scripts.inc',
+legendary_fn = {"SPECIES_REGIROCK": ['orig/SPECIES_REGIROCK_scripts.inc',
                                      '../data/maps/DesertRuins/scripts.inc'],
-                "SPECIES_REGICE": ['SPECIES_REGICE_scripts.inc',
+                "SPECIES_REGICE": ['orig/SPECIES_REGICE_scripts.inc',
                                    '../data/maps/IslandCave/scripts.inc'],
-                "SPECIES_REGISTEEL": ['SPECIES_REGISTEEL_scripts.inc',
+                "SPECIES_REGISTEEL": ['orig/SPECIES_REGISTEEL_scripts.inc',
                                       '../data/maps/AncientTomb/scripts.inc'],
-                "SPECIES_KYOGRE": ['SPECIES_KYOGRE_scripts.inc',
+                "SPECIES_KYOGRE": ['orig/SPECIES_KYOGRE_scripts.inc',
                                    '../data/maps/MarineCave_End/scripts.inc'],
-                "SPECIES_GROUDON": ['SPECIES_GROUDON_scripts.inc',
+                "SPECIES_GROUDON": ['orig/SPECIES_GROUDON_scripts.inc',
                                    '../data/maps/TerraCave_End/scripts.inc'],
-                "SPECIES_RAYQUAZA": ['SPECIES_RAYQUAZA_scripts.inc',
+                "SPECIES_RAYQUAZA": ['orig/SPECIES_RAYQUAZA_scripts.inc',
                                      '../data/maps/SkyPillar_Top/scripts.inc'],
-                "SPECIES_MEW": ['SPECIES_MEW_scripts.inc',
+                "SPECIES_MEW": ['orig/SPECIES_MEW_scripts.inc',
                                 '../data/maps/FarawayIsland_Interior/scripts.inc'],
-                "SPECIES_LUGIA": ['SPECIES_LUGIA_scripts.inc',
-                                  '../data/maps/NavalRock_Bottom/scripts.inc'],
-                "SPECIES_HO_OH": ['SPECIES_HO_OH_scripts.inc',
-                                  '../data/maps/NavalRock_Top/scripts.inc'],
-                "SPECIES_DEOXYS": ['SPECIES_DEOXYS_scripts.inc',
+                "SPECIES_LUGIA": ['orig/SPECIES_LUGIA_scripts.inc',
+                                  '../data/maps/NavelRock_Bottom/scripts.inc'],
+                "SPECIES_HO_OH": ['orig/SPECIES_HO_OH_scripts.inc',
+                                  '../data/maps/NavelRock_Top/scripts.inc'],
+                "SPECIES_DEOXYS": ['orig/SPECIES_DEOXYS_scripts.inc',
                                    '../data/maps/BirthIsland_Exterior/scripts.inc'],}
-latios_latias_orig_fn = 'LATIOS_LATIAS_scripts.inc'
+latios_latias_orig_fn = 'orig/LATIOS_LATIAS_scripts.inc'
 latios_latias_target_fn = '../data/maps/SouthernIsland_Interior/scripts.inc'
 
 
