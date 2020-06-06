@@ -8,6 +8,8 @@ wild_encounters_orig_fn = 'orig/wild_encounters.h'
 wild_encounters_target_fn = '../src/data/wild_encounters.h'
 trainer_parties_orig_fn = 'orig/trainer_parties.h'
 trainer_parties_target_fn = '../src/data/trainer_parties.h'
+trainers_orig_fn = 'orig/trainers.h'
+trainers_target_fn = '../src/data/trainers.h'
 starter_choose_orig_fn = 'orig/starter_choose.c'
 starter_choose_target_fn = '../src/starter_choose.c'
 
@@ -77,9 +79,17 @@ def main(args):
         trainer_parties_str = trainer_parties_str.replace("%s," % a,
                                                           "%s_REPLACED," % mon_map[a])
     trainer_parties_str = trainer_parties_str.replace("_REPLACED", "")
+    # Because we're stripping moves, need to change trainer classes to DefaultMoves
+    trainer_parties_str = trainer_parties_str.replace("CustomMoves ", "DefaultMoves ")
     # Write the result.
     with open(trainer_parties_target_fn, 'w') as f_target:
         f_target.write(trainer_parties_str)
+    # As a result of changing trainer classes, need to update the trainers.h file too.
+    with open(trainers_target_fn, 'w') as f_target:
+        with open(trainers_orig_fn, 'r') as f_orig:
+            contents = f_orig.read()
+        contents = contents.replace("CustomMoves ", "DefaultMoves ")
+        f_target.write(contents)
 
     # Replace event encounters (one by one basis, looks like).
     for legendary in legendary_fn:
