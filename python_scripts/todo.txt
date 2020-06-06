@@ -1,3 +1,7 @@
 todo:
 
 - ensure golem quest can be solved
+- wally sequence
+- gym leader customization
+	- type sign out front / mentions by leader
+	- TM given at the end of battle

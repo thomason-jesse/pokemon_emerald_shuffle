@@ -306,6 +306,8 @@ def main(args):
     print("... First, assigning by importance (ranked list of mon appearance in-game)...")
     for a in mon_by_importance:
         dom_idx = mon_list.index(a)
+        if mon_n_appearances[dom_idx] == 0:
+            break
         if a in mon_evolution:  # need to run beam search rather than taking the single best.
             k = assignment_beam
         else:

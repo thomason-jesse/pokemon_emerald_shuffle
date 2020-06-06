@@ -13,6 +13,9 @@ trainers_target_fn = '../src/data/trainers.h'
 starter_choose_orig_fn = 'orig/starter_choose.c'
 starter_choose_target_fn = '../src/starter_choose.c'
 
+# Parameters
+lvl_increase_for_move_strip = 0.1  # Give a 10% boost to pkm lvl if custom moves were removed.
+
 # Lendary encounter path orig -> target files.
 legendary_fn = {"SPECIES_REGIROCK": ['orig/SPECIES_REGIROCK_scripts.inc',
                                      '../data/maps/DesertRuins/scripts.inc'],
@@ -70,9 +73,18 @@ def main(args):
     # First, just copy the contents of the original file.
     # Strip out fixed movesets for now.
     with open(trainer_parties_orig_fn, 'r') as f_orig:
+        curr_moves_custom = False
         for line in f_orig.readlines():
-            # TODO: do something more clever than just erasing movesets.
-            if ".moves" not in line:
+            if "CustomMoves " in line:
+                curr_moves_custom = True
+            elif "DefaultMoves " in line:
+                curr_moves_custom = False
+            if ".lvl =" in line: #    .lvl = 43,
+                lvl_str = line.split("=")[1].strip().strip(',')
+                new_lvl = int(int(lvl_str) * (1 + lvl_increase_for_move_strip) + 0.5)
+                trainer_parties_str += line.replace(" %s," % lvl_str,
+                                                    " %s," % str(new_lvl))
+            elif ".moves" not in line:  # Drop custom moves
                 trainer_parties_str += line
     # Now replace all instances of A with B.
     for a in mon_map:
