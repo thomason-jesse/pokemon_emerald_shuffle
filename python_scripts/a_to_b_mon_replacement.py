@@ -36,25 +36,61 @@ legendary_fn = {"SPECIES_REGIROCK": ['orig/SPECIES_REGIROCK_scripts.inc',
                 "SPECIES_HO_OH": ['orig/SPECIES_HO_OH_scripts.inc',
                                   '../data/maps/NavelRock_Top/scripts.inc'],
                 "SPECIES_DEOXYS": ['orig/SPECIES_DEOXYS_scripts.inc',
-                                   '../data/maps/BirthIsland_Exterior/scripts.inc'],}
+                                   '../data/maps/BirthIsland_Exterior/scripts.inc']
+                }
 latios_latias_orig_fn = 'orig/LATIOS_LATIAS_scripts.inc'
 latios_latias_target_fn = '../data/maps/SouthernIsland_Interior/scripts.inc'
+
+# Gym encounter path orig -> target files for replacing TM gifts by orig type.
+gym_fn = {"TYPE_ROCK": ['orig/TYPE_ROCK_scripts.inc',
+                        '../data/maps/RustboroCity_Gym/scripts.inc'],
+          "TYPE_FIGHTING": ['orig/TYPE_FIGHTING_scripts.inc',
+                            '../data/maps/DewfordTown_Gym/scripts.inc'],
+          "TYPE_ELECTRIC": ['orig/TYPE_ELECTRIC_scripts.inc',
+                            '../data/maps/MauvilleCity_Gym/scripts.inc'],
+          "TYPE_FIRE": ['orig/TYPE_FIRE_scripts.inc',
+                            '../data/maps/LavaridgeTown_Gym_1F/scripts.inc'],
+          "TYPE_NORMAL": ['orig/TYPE_NORMAL_scripts.inc',
+                            '../data/maps/PetalburgCity_Gym/scripts.inc'],
+          "TYPE_FLYING": ['orig/TYPE_FLYING_scripts.inc',
+                            '../data/maps/FortreeCity_Gym/scripts.inc'],
+          "TYPE_PSYCHIC": ['orig/TYPE_PSYCHIC_scripts.inc',
+                            '../data/maps/MossdeepCity_Gym/scripts.inc'],
+          "TYPE_WATER": ['orig/TYPE_WATER_scripts.inc',
+                            '../data/maps/SootopolisCity_Gym_1F/scripts.inc'],
+         }
+
+# TM gifts per type.
+tm_gifts = {"TYPE_FIGHTING": "ITEM_TM08",  # FOCUS PUNCH
+            "TYPE_FLYING": "ITEM_TM40",  # AERIAL ACE 
+            "TYPE_ELECTRIC": "ITEM_TM34",  # SHOCK WAVE
+            "TYPE_POISON": "ITEM_TM06",  # TOXIC 
+            "TYPE_GHOST": "ITEM_TM30",  # SHADOW BALL
+            "TYPE_NORMAL": "ITEM_TM42",  # FACADE
+            "TYPE_BUG": "ITEM_TM19",  # GIGA DRAIN (no BUG TMs in Gen III)
+            "TYPE_PSYCHIC": "ITEM_TM29",  # PSYCHIC
+            "TYPE_GROUND": "ITEM_TM26",  # EARTHQUAKE
+            "TYPE_DRAGON": "ITEM_TM02",  # DRAGON CLAW
+            "TYPE_GRASS": "ITEM_TM22",  # SOLAR BEAM 
+            "TYPE_STEEL": "ITEM_TM23",  # IRON TAIL
+            "TYPE_ICE": "ITEM_TM13",  # ICE BEAM
+            "TYPE_FIRE": "ITEM_TM50",  # OVERHEAT
+            "TYPE_WATER": "ITEM_TM03",  # WATER PULSE
+            "TYPE_DARK": "ITEM_TM49",  # SNATCH
+            "TYPE_ROCK": "ITEM_TM39"  # ROCK TOMB
+            }
 
 
 def main(args):
     
-    mon_map = {}
     with open(args.input_fn, 'r') as f:
-        for line in f.readlines():
-            if len(line.strip()) == 0:
-                continue
-            ab = line.strip().split('->')
-            if ab[0] in mon_map:
-                print("WARNING: one-to-many mapping for '%s'" % ab[0])
-            mon_map[ab[0]] = ab[1]
+        d = json.load(f)
+        mon_map = d["mon_map"]
+        mon_map = {str(a): str(mon_map[a]) for a in mon_map}
+        type_map = d["type_map"]
+        type_map = {str(t): str(type_map[t]) for t in type_map}
 
     # Replace wild encounters.
-
     wild_encounter_str = ''
     # First, just copy the contents of the original file.
     with open(wild_encounters_orig_fn, 'r') as f_orig:
@@ -140,6 +176,17 @@ def main(args):
     # Write the result.
     with open(starter_choose_target_fn, 'w') as f_target:
         f_target.write(starter_choose_str)
+
+    # Replace gym TM gifts.
+    for tm_type in gym_fn:
+        source_fn, target_fn = gym_fn[tm_type]
+        with open(target_fn, 'w') as f_target:
+            with open(source_fn, 'r') as f_orig:
+                for line in f_orig.readlines():
+                    if "giveitem ITEM_" in line:
+                        f_target.write("   giveitem %s\n" % tm_gifts[type_map[tm_type]])
+                    else:
+                        f_target.write(line)
 
 
 if __name__ == '__main__':

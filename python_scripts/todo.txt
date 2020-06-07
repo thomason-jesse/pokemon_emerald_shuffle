@@ -4,5 +4,4 @@ todo:
 - wally sequence
 - gym leader customization
 	- type sign out front / mentions by leader
-	- TM given at the end of battle
 	

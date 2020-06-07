@@ -148,7 +148,7 @@ def score_map(mon_map, mon_list, type_list, mon_metadata, mon_evolution, as_exp_
             spt, spt / float(penalty), ept, ept / float(penalty), tpt, tpt / float(penalty))
         return exp_str
 
-    return penalty, penalty_per_mon
+    return penalty, penalty_per_mon, rough_type_to_type
 
 
 def make_assignment_and_propagate(a_to_b_penalty, dom_idx, img_jdx, type_map,
@@ -347,8 +347,8 @@ def main(args):
                                       mon_map, mon_image, mon_list, mon_evolution, mon_metadata)
         all_assigned = len(set(mon_map.keys()).intersection(set(mon_list))) == len(mon_list)
 
-    curr_penalty, curr_mon_penalty = score_map(mon_map, mon_list, type_list,
-                                               mon_metadata, mon_evolution)
+    curr_penalty, curr_mon_penalty, type2type = score_map(mon_map, mon_list, type_list,
+                                                          mon_metadata, mon_evolution)
     print("...... done")
     print("... done; init penalty %.2f" % curr_penalty)
 
@@ -372,20 +372,21 @@ def main(args):
             neighbor[c] = b
         
         # Score the neighbor and accept it based on temp.
-        neighbor_penalty, n_mon_penalty = score_map(neighbor, mon_list, type_list,
-                                                    mon_metadata, mon_evolution)
+        neighbor_penalty, n_mon_penalty, n_type2type = score_map(neighbor, mon_list, type_list,
+                                                                 mon_metadata, mon_evolution)
         if (neighbor_penalty < curr_penalty or 
             random.random() < math.exp((curr_penalty - neighbor_penalty) / t)):
             mon_map = neighbor
             curr_penalty = neighbor_penalty
             curr_mon_penalty = n_mon_penalty
+            type2type = n_type2type
     print("... done; final penalty %.2f" % curr_penalty)
 
     # Write the result.
-    print("Writing to file...")
+    print("Writing results to JSON format...")
+    d = {"mon_map": mon_map, "type_map": type2type}
     with open(args.output_fn, 'w') as f:
-        for a in mon_map:
-            f.write("%s->%s\n" % (a, mon_map[a]))
+        json.dump(d, f, indent=2)
     print("... done")
 
 
