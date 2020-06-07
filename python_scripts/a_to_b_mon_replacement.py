@@ -101,6 +101,8 @@ def main(args):
         with open(trainers_orig_fn, 'r') as f_orig:
             contents = f_orig.read()
         contents = contents.replace("CustomMoves ", "DefaultMoves ")
+        contents = contents.replace(" | F_TRAINER_PARTY_CUSTOM_MOVESET,", ",")
+        contents = contents.replace(" = F_TRAINER_PARTY_CUSTOM_MOVESET,", " = 0,")
         f_target.write(contents)
 
     # Replace event encounters (one by one basis, looks like).
