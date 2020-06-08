@@ -12,6 +12,8 @@ trainers_orig_fn = 'orig/trainers.h'
 trainers_target_fn = '../src/data/trainers.h'
 starter_choose_orig_fn = 'orig/starter_choose.c'
 starter_choose_target_fn = '../src/starter_choose.c'
+battle_setup_orig_fn = 'orig/battle_setup.c'
+battle_setup_target_fn = '../src/battle_setup.c'
 
 # Parameters
 lvl_increase_for_move_strip = 0.1  # Give a 10% boost to pkm lvl if custom moves were removed.
@@ -178,6 +180,14 @@ def main(args):
     # Write the result.
     with open(starter_choose_target_fn, 'w') as f_target:
         f_target.write(starter_choose_str)
+
+    # Replace special battle setup 'mon.
+    # For now, this is just the special battle with Wally catching Ralts.
+    with open(battle_setup_orig_fn, 'r') as f_orig:
+        contents = f_orig.read()
+    contents = contents.replace("SPECIES_RALTS,", "%s," % mon_map['SPECIES_RALTS'])
+    with open(battle_setup_target_fn, 'w') as f_target:
+        f_target.write(contents)
 
     # Replace gym TM gifts.
     for tm_type in gym_fn:
