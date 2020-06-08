@@ -93,6 +93,9 @@ def main(args):
         mon_map = {str(a): str(mon_map[a]) for a in mon_map}
         type_map = d["type_map"]
         type_map = {str(t): str(type_map[t]) for t in type_map}
+        mon_move_map = d["mon_move_map"] if "mon_move_map" in d else None
+    if mon_move_map is None:
+        print("WARNING: will remove custom moves and increase levels by %.2f percent." % lvl_increase_for_move_strip)
 
     # Replace wild encounters.
     wild_encounter_str = ''
@@ -113,18 +116,29 @@ def main(args):
     # First, just copy the contents of the original file.
     # Strip out fixed movesets for now.
     with open(trainer_parties_orig_fn, 'r') as f_orig:
-        curr_moves_custom = False
+        curr_mon = None
         for line in f_orig.readlines():
-            if "CustomMoves " in line:
-                curr_moves_custom = True
-            elif "DefaultMoves " in line:
-                curr_moves_custom = False
-            if ".lvl =" in line: #    .lvl = 43,
+            if ".species" in line:
+                #    .species = SPECIES_MEDICHAM,
+                curr_mon = line.split('=')[1].strip().strip(',')
+
+            if mon_move_map is None and ".lvl =" in line:
+                #    .lvl = 43,
                 lvl_str = line.split("=")[1].strip().strip(',')
                 new_lvl = int(int(lvl_str) * (1 + lvl_increase_for_move_strip) + 0.5)
                 trainer_parties_str += line.replace(" %s," % lvl_str,
                                                     " %s," % str(new_lvl))
-            elif ".moves" not in line:  # Drop custom moves
+
+            elif ".moves" in line:
+                if mon_move_map is not None and ".moves" in line:  # Select new custom moves
+                    #    .moves = {MOVE_PSYCHIC, MOVE_NONE, MOVE_NONE, MOVE_NONE}
+                    ps = line.split("=")
+                    moves = [m.strip() for m in ps[1].strip().strip('{}').split(',')]
+                    moves = [mon_move_map[mon_map[curr_mon]][m] if m != "MOVE_NONE" else "MOVE_NONE"
+                             for m in moves]
+                    new_line = ps[0] + " {" + ', '.join(moves) + "}\n"
+                    trainer_parties_str += new_line
+            else:
                 trainer_parties_str += line
     # Now replace all instances of A with B.
     for a in mon_map:
@@ -132,7 +146,8 @@ def main(args):
                                                           "%s_REPLACED," % mon_map[a])
     trainer_parties_str = trainer_parties_str.replace("_REPLACED", "")
     # Because we're stripping moves, need to change trainer classes to DefaultMoves
-    trainer_parties_str = trainer_parties_str.replace("CustomMoves ", "DefaultMoves ")
+    if mon_move_map is None:
+        trainer_parties_str = trainer_parties_str.replace("CustomMoves ", "DefaultMoves ")
     # Write the result.
     with open(trainer_parties_target_fn, 'w') as f_target:
         f_target.write(trainer_parties_str)
@@ -140,9 +155,10 @@ def main(args):
     with open(trainers_target_fn, 'w') as f_target:
         with open(trainers_orig_fn, 'r') as f_orig:
             contents = f_orig.read()
-        contents = contents.replace("CustomMoves ", "DefaultMoves ")
-        contents = contents.replace(" | F_TRAINER_PARTY_CUSTOM_MOVESET,", ",")
-        contents = contents.replace(" = F_TRAINER_PARTY_CUSTOM_MOVESET,", " = 0,")
+        if mon_move_map is None:
+            contents = contents.replace("CustomMoves ", "DefaultMoves ")
+            contents = contents.replace(" | F_TRAINER_PARTY_CUSTOM_MOVESET,", ",")
+            contents = contents.replace(" = F_TRAINER_PARTY_CUSTOM_MOVESET,", " = 0,")
         f_target.write(contents)
 
     # Replace event encounters (one by one basis, looks like).
