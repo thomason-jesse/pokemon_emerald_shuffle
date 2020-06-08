@@ -30,7 +30,8 @@ swaps_for_neighbor = 1  # how many assignment swaps to perform per iteration.
 starter_species = ['SPECIES_TREECKO', 'SPECIES_TORCHIC', 'SPECIES_MUDKIP']
 assignment_beam = 10  # how many assignments to try in analytical solution.
 
-def get_a_to_b_penalty(a, b, mon_map, mon_metadata, mon_evolution, type_map):
+def get_a_to_b_penalty(a, b, mon_map, mon_metadata, mon_evolution, type_map,
+                       penalize_same_type):
     # Penalize the stat total difference between a and b with abs.
     if a != b:
         sp = sum([abs(mon_metadata[a][s] - mon_metadata[b][s])
@@ -66,14 +67,15 @@ def get_a_to_b_penalty(a, b, mon_map, mon_metadata, mon_evolution, type_map):
     for type_str in ["type1", "type2"]:
         if (mon_metadata[b][type_str] != type_map[mon_metadata[a][type_str]] or
             # Penalize for mismatch in mapping (above) or mapping a type to itself (below).
-            type_map[mon_metadata[a][type_str]] == mon_metadata[a][type_str]):
+            (penalize_same_type and type_map[mon_metadata[a][type_str]] == mon_metadata[a][type_str])):
             tp += 1
 
     total_penalty = (sp * stat_coeff) + (ep * evol_coeff) + (tp * type_coeff)
     return total_penalty, sp, ep, tp
 
 
-def score_map(mon_map, mon_list, type_list, mon_metadata, mon_evolution, as_exp_str=False):
+def score_map(mon_map, mon_list, type_list, mon_metadata, mon_evolution, penalize_same_type,
+              as_exp_str=False):
 
     # First, build type confusion matrix.
     type_to_type_counts = [[0 for t1 in type_list] for t2 in type_list]
@@ -81,11 +83,11 @@ def score_map(mon_map, mon_list, type_list, mon_metadata, mon_evolution, as_exp_
         b = mon_map[a]
         type_to_type_counts[type_list.index(mon_metadata[a]["type1"])][type_list.index(mon_metadata[b]["type1"])] += 1
         type_to_type_counts[type_list.index(mon_metadata[a]["type2"])][type_list.index(mon_metadata[b]["type2"])] += 1
-   # Normalize.
+    # Normalize.
     for idx in range(len(type_list)):
         type_to_type_counts[idx] = [float(type_to_type_counts[idx][jdx]) / sum(type_to_type_counts[idx])
                                     for jdx in range(len(type_list))]
-   # Assign apparent type map maxes.
+    # Assign apparent type map maxes.
     rough_type_to_type = {}
     not_in_domain = type_list[:]
     not_in_range = type_list[:]
@@ -129,7 +131,8 @@ def score_map(mon_map, mon_list, type_list, mon_metadata, mon_evolution, as_exp_
         b = mon_map[a]
 
         mon_penalty, sp, ep, tp = get_a_to_b_penalty(a, b, mon_map, mon_metadata,
-                                                     mon_evolution, rough_type_to_type)
+                                                     mon_evolution, rough_type_to_type,
+                                                     penalize_same_type)
         
         penalty += mon_penalty
         penalty_per_mon[mon_idx] += mon_penalty
@@ -153,7 +156,7 @@ def score_map(mon_map, mon_list, type_list, mon_metadata, mon_evolution, as_exp_
 
 def make_assignment_and_propagate(a_to_b_penalty, dom_idx, img_jdx, type_map,
                                   mon_map, mon_image, mon_list, mon_evolution, mon_metadata,
-                                  debug=False):
+                                  penalize_same_type, debug=False):
     penalty_added = 0
 
     mon_map[mon_list[dom_idx]] = mon_list[img_jdx]  # assignment
@@ -200,7 +203,8 @@ def make_assignment_and_propagate(a_to_b_penalty, dom_idx, img_jdx, type_map,
             else:
                 mon_penalty, _, _, _ = get_a_to_b_penalty(a, b, mon_map, 
                                                           mon_metadata,
-                                                          mon_evolution, type_map)
+                                                          mon_evolution, type_map,
+                                                          penalize_same_type)
             a_to_b_penalty[idx, jdx] = mon_penalty
     # if debug:
         # print("\tpenalty added %d" % penalty_added)
@@ -208,6 +212,7 @@ def make_assignment_and_propagate(a_to_b_penalty, dom_idx, img_jdx, type_map,
 
 
 def main(args):
+    assert args.type_mapping in ['random', 'fixed']
 
     # Read in mon metadata.
     mon_metadata = {}
@@ -277,10 +282,16 @@ def main(args):
 
     # First, assign a random type -> type map.
     type_map = {}
+    penalize_same_type = None
     idxs = list(range(len(type_list)))
-    while np.any([idx == idxs[idx] for idx in range(len(type_list))]):
-        random.shuffle(idxs)
-    print("Random initial type map:")
+    if args.type_mapping == 'random':
+        penalize_same_type = True
+        while np.any([idx == idxs[idx] for idx in range(len(type_list))]):
+            random.shuffle(idxs)
+        print("Random initial type map:")
+    elif args.type_mapping == 'fixed':
+        penalize_same_type = False
+        print("Fixed initial type map:")
     for idx in range(len(type_list)):
         type_map[type_list[idx]] = type_list[idxs[idx]]
         print("\t%s->%s" % (type_list[idx], type_list[idxs[idx]]))
@@ -294,7 +305,8 @@ def main(args):
         for jdx in range(n_mon):
             b = mon_list[jdx]
             mon_penalty, _, _, _ = get_a_to_b_penalty(a, b, mon_map, 
-                                                      mon_metadata, mon_evolution, type_map)
+                                                      mon_metadata, mon_evolution, type_map,
+                                                      penalize_same_type)
             a_to_b_penalty[idx, jdx] = mon_penalty
 
     # Initially, assign A -> B map in order of A's importance, minimizing B assignments per.
@@ -324,14 +336,14 @@ def main(args):
             # print("\tbeam try %s->%s (%d)" % (mon_list[dom_idx], mon_list[kidx], a_to_b_penalty[dom_idx, kidx]))  # DEBUG
             kidx_p = make_assignment_and_propagate(ab_p_copy, dom_idx, kidx, type_map,
                                                    mon_map_copy, image_copy, mon_list,
-                                                   mon_evolution, mon_metadata)
+                                                   mon_evolution, mon_metadata, penalize_same_type)
             if best_jdx is None or kidx_p < lowest_penalty:
                 best_jdx = kidx
                 lowest_penalty = kidx_p
         if best_jdx is not None:
             make_assignment_and_propagate(a_to_b_penalty, dom_idx, best_jdx, type_map,
                                           mon_map, mon_image, mon_list, mon_evolution, mon_metadata,
-                                          debug=True)
+                                          penalize_same_type, debug=True)
         # else:
             # print("Warning: could not assign %s during importance phase" % a)
     print("...... done")
@@ -344,11 +356,13 @@ def main(args):
         min_idx_jdx = np.argmin(a_to_b_penalty)
         dom_idx, img_jdx = int(min_idx_jdx // n_mon), int(min_idx_jdx % n_mon)
         make_assignment_and_propagate(a_to_b_penalty, dom_idx, img_jdx, type_map,
-                                      mon_map, mon_image, mon_list, mon_evolution, mon_metadata)
+                                      mon_map, mon_image, mon_list, mon_evolution, mon_metadata,
+                                      penalize_same_type)
         all_assigned = len(set(mon_map.keys()).intersection(set(mon_list))) == len(mon_list)
 
     curr_penalty, curr_mon_penalty, type2type = score_map(mon_map, mon_list, type_list,
-                                                          mon_metadata, mon_evolution)
+                                                          mon_metadata, mon_evolution,
+                                                          penalize_same_type)
     print("...... done")
     print("... done; init penalty %.2f" % curr_penalty)
 
@@ -360,7 +374,7 @@ def main(args):
             print("%d/%d; t %.5f; penalty %.2f" % (i, max_iterations, t, curr_penalty))
             with open("%s.%d" % (args.output_fn, i), 'w') as f:
                 f.write(score_map(mon_map, mon_list, type_list, mon_metadata, mon_evolution,
-                                  as_exp_str=True))
+                                  penalize_same_type, as_exp_str=True))
 
         # Create a nearest neighbor assignment.
         neighbor = {a: mon_map[a] for a in mon_map}
@@ -373,7 +387,8 @@ def main(args):
         
         # Score the neighbor and accept it based on temp.
         neighbor_penalty, n_mon_penalty, n_type2type = score_map(neighbor, mon_list, type_list,
-                                                                 mon_metadata, mon_evolution)
+                                                                 mon_metadata, mon_evolution,
+                                                                 penalize_same_type)
         if (neighbor_penalty < curr_penalty or 
             random.random() < math.exp((curr_penalty - neighbor_penalty) / t)):
             mon_map = neighbor
@@ -394,6 +409,8 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Write an A to B mon map.')
     parser.add_argument('--output_fn', type=str, required=True,
                         help='the output file for the mon map')
+    parser.add_argument('--type_mapping', type=str, required=True,
+                        help='one of "random" or "fixed"')
     args = parser.parse_args()
 
 

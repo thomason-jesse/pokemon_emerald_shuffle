@@ -58,6 +58,8 @@ gym_fn = {"TYPE_ROCK": ['orig/TYPE_ROCK_scripts.inc',
                             '../data/maps/MossdeepCity_Gym/scripts.inc'],
           "TYPE_WATER": ['orig/TYPE_WATER_scripts.inc',
                             '../data/maps/SootopolisCity_Gym_1F/scripts.inc'],
+          "TYPE_STEEL": ['orig/TYPE_STEEL_scripts.inc',  # Steven's gift in Dewford
+                            '../data/maps/GraniteCave_StevensRoom/scripts.inc'],
          }
 
 # TM gifts per type.
@@ -72,7 +74,7 @@ tm_gifts = {"TYPE_FIGHTING": "ITEM_TM08",  # FOCUS PUNCH
             "TYPE_GROUND": "ITEM_TM26",  # EARTHQUAKE
             "TYPE_DRAGON": "ITEM_TM02",  # DRAGON CLAW
             "TYPE_GRASS": "ITEM_TM22",  # SOLAR BEAM 
-            "TYPE_STEEL": "ITEM_TM23",  # IRON TAIL
+            "TYPE_STEEL": "ITEM_TM47",  # STEEL WING
             "TYPE_ICE": "ITEM_TM13",  # ICE BEAM
             "TYPE_FIRE": "ITEM_TM50",  # OVERHEAT
             "TYPE_WATER": "ITEM_TM03",  # WATER PULSE
