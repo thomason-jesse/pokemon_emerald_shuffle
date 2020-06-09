@@ -1,7 +1,6 @@
 import argparse
 import json
-import os
-
+import numpy as np
 
 # Paths.
 wild_encounters_orig_fn = 'orig/wild_encounters.h'
@@ -65,8 +64,8 @@ gym_fn = {"TYPE_ROCK": ['orig/TYPE_ROCK_scripts.inc',
          }
 
 # TM gifts per type.
-tm_gifts = {"TYPE_FIGHTING": "ITEM_TM08",  # FOCUS PUNCH
-            "TYPE_FLYING": "ITEM_TM40",  # AERIAL ACE 
+tm_gifts = {"TYPE_FIGHTING": "ITEM_TM01",  # FOCUS PUNCH
+            "TYPE_FLYING": "ITEM_TM40",  # AERIAL ACE
             "TYPE_ELECTRIC": "ITEM_TM34",  # SHOCK WAVE
             "TYPE_POISON": "ITEM_TM06",  # TOXIC 
             "TYPE_GHOST": "ITEM_TM30",  # SHADOW BALL
@@ -82,7 +81,31 @@ tm_gifts = {"TYPE_FIGHTING": "ITEM_TM08",  # FOCUS PUNCH
             "TYPE_WATER": "ITEM_TM03",  # WATER PULSE
             "TYPE_DARK": "ITEM_TM49",  # SNATCH
             "TYPE_ROCK": "ITEM_TM39"  # ROCK TOMB
-            }
+           }
+# TM gifts move overrides by leader.
+tm_gift_overrides = {"TYPE_FIGHTING": "MOVE_FOCUS_PUNCH",  # FOCUS PUNCH
+                     "TYPE_FLYING": "MOVE_AERIAL_ACE",  # AERIAL ACE
+                     "TYPE_ELECTRIC": "MOVE_SHOCK_WAVE",  # SHOCK WAVE
+                     "TYPE_POISON": "MOVE_TOXIC",  # TOXIC 
+                     "TYPE_GHOST": "MOVE_SHADOW_BALL",  # SHADOW BALL
+                     "TYPE_NORMAL": "MOVE_FACADE",  # FACADE
+                     "TYPE_BUG": "MOVE_GIGA_DRAIN",  # GIGA DRAIN (no BUG TMs in Gen III)
+                     "TYPE_PSYCHIC": "MOVE_PSYCHIC",  # PSYCHIC
+                     "TYPE_GROUND": "MOVE_EARTHQUAKE",  # EARTHQUAKE
+                     "TYPE_DRAGON": "MOVE_DRAGON_CLAW",  # DRAGON CLAW
+                     "TYPE_GRASS": "MOVE_SOLAR_BEAM",  # SOLAR BEAM 
+                     "TYPE_STEEL": "MOVE_STEEL_WING",  # STEEL WING
+                     "TYPE_ICE": "MOVE_ICE_BEAM",  # ICE BEAM
+                     "TYPE_FIRE": "MOVE_OVERHEAT",  # OVERHEAT
+                     "TYPE_WATER": "MOVE_WATER_PULSE",  # WATER PULSE
+                     "TYPE_DARK": "MOVE_SNATCH",  # SNATCH
+                     "TYPE_ROCK": "MOVE_ROCK_TOMB"  # ROCK TOMB
+                    }
+tm_gift_overrides_r = {tm_gift_overrides[t]: t for t in tm_gift_overrides}
+leader_name_strs = {'Roxanne': "TYPE_ROCK", 'Brawly': "TYPE_FIGHTING",
+                    'Wattson': "TYPE_ELECTRIC", 'Flannery': "TYPE_FIRE",
+                    'Norman': "TYPE_NORMAL", 'Winona': "TYPE_FLYING",
+                    'TateAndLiza': "TYPE_PSYCHIC", 'Juan': "TYPE_WATER"}
 
 
 def main(args):
@@ -117,7 +140,15 @@ def main(args):
     # Strip out fixed movesets for now.
     with open(trainer_parties_orig_fn, 'r') as f_orig:
         curr_mon = None
+        curr_leader = False
         for line in f_orig.readlines():
+            if "static const struct" in line:
+                #static const struct TrainerMonNoItemDefaultMoves sParty_MayRustboroTorchic[] = {\n 
+                curr_leader = None
+                for l in leader_name_strs:
+                    if "_%s" % l in line:
+                        curr_leader = l
+
             if ".species" in line:
                 #    .species = SPECIES_MEDICHAM,
                 curr_mon = line.split('=')[1].strip().strip(',')
@@ -134,8 +165,18 @@ def main(args):
                     #    .moves = {MOVE_PSYCHIC, MOVE_NONE, MOVE_NONE, MOVE_NONE}
                     ps = line.split("=")
                     moves = [m.strip() for m in ps[1].strip().strip('{}').split(',')]
-                    moves = [mon_move_map[mon_map[curr_mon]][m] if m != "MOVE_NONE" else "MOVE_NONE"
-                             for m in moves]
+                    if curr_leader is None:
+                        moves = [mon_move_map[mon_map[curr_mon]][m] if m != "MOVE_NONE" else "MOVE_NONE"
+                                 for m in moves]
+                    else:
+                        for idx in range(len(moves)):
+                            if moves[idx] != "MOVE_NONE":
+                                if (moves[idx] in tm_gift_overrides_r and 
+                                    tm_gift_overrides_r[moves[idx]] == leader_name_strs[curr_leader]):
+                                    gift_type = tm_gift_overrides_r[moves[idx]]
+                                    moves[idx] = tm_gift_overrides[type_map[gift_type]]
+                                else:
+                                    moves[idx] = mon_move_map[mon_map[curr_mon]][moves[idx]]
                     new_line = ps[0] + " {" + ', '.join(moves) + "}\n"
                     trainer_parties_str += new_line
             else:

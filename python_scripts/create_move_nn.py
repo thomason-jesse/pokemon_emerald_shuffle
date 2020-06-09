@@ -23,7 +23,6 @@ type_coeff = 2
 target_coeff = 1
 flag_coeff = 1  # IOU * this coeff
 
-
 # Real valued properties have been z-score normalized, so a diff of 1 corresponds to a std deviation.
 # So, we can use 1 as a distance for other effect differences to say, roughly, that the move
 # falls another standard deviation away on a discrete metric (e.g., effect type).
