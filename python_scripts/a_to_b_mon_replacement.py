@@ -13,6 +13,8 @@ starter_choose_orig_fn = 'orig/starter_choose.c'
 starter_choose_target_fn = '../src/starter_choose.c'
 battle_setup_orig_fn = 'orig/battle_setup.c'
 battle_setup_target_fn = '../src/battle_setup.c'
+fossils_orig_fn = 'orig/FOSSILS_scripts.inc'
+fossils_target_fn = '../data/maps/RustboroCity_DevonCorp_2F/scripts.inc'
 
 # Parameters
 lvl_increase_for_move_strip = 0.1  # Give a 10% boost to pkm lvl if custom moves were removed.
@@ -221,6 +223,15 @@ def main(args):
         for legendary in ['SPECIES_LATIOS', 'SPECIES_LATIAS']:
             contents = contents.replace("%s," % legendary,
                                             "%s_REPLACED," % mon_map[legendary])
+            contents = contents.replace("_REPLACED", "")
+        f_target.write(contents)
+    # Replace Lileep/Anorith as a special case (they're in the same file.)
+    with open(fossils_target_fn, 'w') as f_target:
+        with open(fossils_orig_fn, 'r') as f_orig:
+            contents = f_orig.read()
+        for fossil in ['SPECIES_LILEEP', 'SPECIES_ANORITH']:
+            contents = contents.replace("%s" % fossil,
+                                        "%s_REPLACED" % mon_map[fossil])
             contents = contents.replace("_REPLACED", "")
         f_target.write(contents)
 

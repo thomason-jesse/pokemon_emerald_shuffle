@@ -19,33 +19,35 @@ int_data = ['baseHP', 'baseAttack', 'baseDefense', 'baseSpeed', 'baseSpAttack',
             'baseSpDefense', 'catchRate', 'expYield', 'evYield_HP', 'evYield_Attack',
             'evYield_Defense', 'evYield_Speed', 'evYield_SpAttack', 'evYield_SpDefense',
             'eggCycles', 'friendship', 'safariZoneFleeRate']
+stat_data = ['baseHP', 'baseAttack', 'baseDefense',
+             'baseSpeed', 'baseSpAttack', 'baseSpDefense']
 
 # Simulated annealing and scoring hyperparameters.
 max_iterations = 100000
 print_every_n_iterations = max_iterations / 10
-stat_coeff = 1  # 1 abs difference between stats penalty.
-evol_coeff = 500  # 100 points penalty for a mismatched evolution.
-type_coeff = 100  # 10 points penalty for mismatched rough type->type map.
+stat_coeff = 1  # Use z score norm on stats, so 1 std dev in sum stat difference
+evol_coeff = 3  # Penalize 3 standard deviations for missing an evolution.
+type_coeff = 2  # Penalize 2 standard deviations for deviating from the target types.
 swaps_for_neighbor = 1  # how many assignment swaps to perform per iteration.
 starter_species = ['SPECIES_TREECKO', 'SPECIES_TORCHIC', 'SPECIES_MUDKIP']
-assignment_beam = 10  # how many assignments to try in analytical solution.
+assignment_beam = 20  # how many assignments to try in analytical solution.
 
 def get_a_to_b_penalty(a, b, mon_map, mon_metadata, mon_evolution, type_map,
                        penalize_same_type):
-    # Penalize the stat total difference between a and b with abs.
+    # Average difference in z score normalized stats forms the main part of the penalty.
     if a != b:
         sp = sum([abs(mon_metadata[a][s] - mon_metadata[b][s])
-                  for s in ['baseHP', 'baseAttack', 'baseDefense',
-                            'baseSpeed', 'baseSpAttack', 'baseSpDefense']])
-    else:  # Full stat penalty for mapping a mon to itself.
+                  for s in stat_data])
+    else:  # Double stat penalty for mapping a mon to itself.
         sp = sum([mon_metadata[a][s]
-                  for s in ['baseHP', 'baseAttack', 'baseDefense',
-                            'baseSpeed', 'baseSpAttack', 'baseSpDefense']])
+                  for s in stat_data]) * 2
+    sp /= len(stat_data)
 
     # Penalize inconsistency of evolution form.
     # Bulb -> Char
     # Ivy -> Charm
     # Ven -> Charz
+    # ep=1 means this mon maps to b but its evolution does not map to B.
     ep = 0
     if a in mon_evolution:
         if b in mon_evolution:
@@ -62,13 +64,13 @@ def get_a_to_b_penalty(a, b, mon_map, mon_metadata, mon_evolution, type_map,
         else:
             ep = 1
 
-    # Penalize rough type map mismatch.
+    # Penalize rough type map mismatch. tp=1 means full mismatch / 0 perfect match.
     tp = 0
     for type_str in ["type1", "type2"]:
         if (mon_metadata[b][type_str] != type_map[mon_metadata[a][type_str]] or
             # Penalize for mismatch in mapping (above) or mapping a type to itself (below).
             (penalize_same_type and type_map[mon_metadata[a][type_str]] == mon_metadata[a][type_str])):
-            tp += 1
+            tp += 0.5
 
     total_penalty = (sp * stat_coeff) + (ep * evol_coeff) + (tp * type_coeff)
     return total_penalty, sp, ep, tp
@@ -161,7 +163,7 @@ def make_assignment_and_propagate(a_to_b_penalty, dom_idx, img_jdx, type_map,
 
     mon_map[mon_list[dom_idx]] = mon_list[img_jdx]  # assignment
     if debug:
-        print("%s->%s (p=%d)" % (mon_list[dom_idx], mon_list[img_jdx], a_to_b_penalty[dom_idx, img_jdx]))
+        print("%s->%s (p=%.2f)" % (mon_list[dom_idx], mon_list[img_jdx], a_to_b_penalty[dom_idx, img_jdx]))
     penalty_added += a_to_b_penalty[dom_idx, img_jdx]
     mon_image.add(mon_list[img_jdx])
     # If a and b both evolve, force evolution mapping.
@@ -186,7 +188,7 @@ def make_assignment_and_propagate(a_to_b_penalty, dom_idx, img_jdx, type_map,
             img_jdx = mon_list.index(best_b)
             mon_map[mon_list[dom_idx]] = mon_list[img_jdx]  # assignment
             if debug:
-                print("%s->%s (p=%d)" % (mon_list[dom_idx], mon_list[img_jdx], a_to_b_penalty[dom_idx, img_jdx]))
+                print("%s->%s (p=%.2f)" % (mon_list[dom_idx], mon_list[img_jdx], a_to_b_penalty[dom_idx, img_jdx]))
             penalty_added += a_to_b_penalty[dom_idx, img_jdx]
             mon_image.add(mon_list[img_jdx])
         else:
@@ -212,7 +214,13 @@ def make_assignment_and_propagate(a_to_b_penalty, dom_idx, img_jdx, type_map,
 
 
 def main(args):
-    assert args.type_mapping in ['random', 'fixed']
+    type_map = {}
+    if args.type_mapping not in ['random', 'fixed']:
+        tms = args.type_mapping.strip().split(',')
+        for tm in tms:
+            ps = tm.split('-')
+            type_map[ps[0]] = ps[1]
+        args.type_mapping = 'random'
 
     # Read in mon metadata.
     mon_metadata = {}
@@ -242,7 +250,13 @@ def main(args):
                     if data_name == "type1" or data_name == "type2":
                         if data_str not in type_list:
                             type_list.append(data_str)
+    # Perform z score normalization on numeric metadata.
     mon_list = list(mon_metadata.keys())
+    for data_name in int_data:
+        data_mean = np.mean([mon_metadata[a][data_name] for a in mon_list])
+        data_std = np.std([mon_metadata[a][data_name] for a in mon_list])
+        for a in mon_list:
+            mon_metadata[a][data_name] = (mon_metadata[a][data_name] - data_mean) / data_std
     n_mon = len(mon_list)
     print("Read in %d mon metadata and %d types" % (len(mon_metadata), len(type_list)))
 
@@ -281,20 +295,24 @@ def main(args):
     mon_map = {}
 
     # First, assign a random type -> type map.
-    type_map = {}
     penalize_same_type = None
-    idxs = list(range(len(type_list)))
+    type_list_to_assign = [t for t in type_list if t not in type_map]
+    type_list_to_image = [t for t in type_list if not np.any([t == type_map[u]
+                                                              for u in type_map])]
+    idxs = list(range(len(type_list_to_assign)))
     if args.type_mapping == 'random':
         penalize_same_type = True
-        while np.any([idx == idxs[idx] for idx in range(len(type_list))]):
+        while np.any([type_list_to_assign[idx] == type_list_to_image[idxs[idx]]
+                      for idx in range(len(type_list_to_assign))]):
             random.shuffle(idxs)
         print("Random initial type map:")
     elif args.type_mapping == 'fixed':
         penalize_same_type = False
         print("Fixed initial type map:")
-    for idx in range(len(type_list)):
-        type_map[type_list[idx]] = type_list[idxs[idx]]
-        print("\t%s->%s" % (type_list[idx], type_list[idxs[idx]]))
+    for idx in range(len(type_list_to_assign)):
+        type_map[type_list_to_assign[idx]] = type_list_to_image[idxs[idx]]
+    for t in type_map:
+        print("\t%s->%s" % (t, type_map[t]))
 
     # Create an initial penalty weights matrix.
     print("Running greedy solver given type map...")
@@ -333,7 +351,7 @@ def main(args):
             ab_p_copy = a_to_b_penalty.copy()
             image_copy = mon_image.copy()
             mon_map_copy = {m: mon_map[m] for m in mon_map}
-            # print("\tbeam try %s->%s (%d)" % (mon_list[dom_idx], mon_list[kidx], a_to_b_penalty[dom_idx, kidx]))  # DEBUG
+            # print("\tbeam try %s->%s (%.2f)" % (mon_list[dom_idx], mon_list[kidx], a_to_b_penalty[dom_idx, kidx]))  # DEBUG
             kidx_p = make_assignment_and_propagate(ab_p_copy, dom_idx, kidx, type_map,
                                                    mon_map_copy, image_copy, mon_list,
                                                    mon_evolution, mon_metadata, penalize_same_type)
@@ -341,6 +359,7 @@ def main(args):
                 best_jdx = kidx
                 lowest_penalty = kidx_p
         if best_jdx is not None:
+            # print("final assignment")  # DEBUG
             make_assignment_and_propagate(a_to_b_penalty, dom_idx, best_jdx, type_map,
                                           mon_map, mon_image, mon_list, mon_evolution, mon_metadata,
                                           penalize_same_type, debug=True)
@@ -410,7 +429,7 @@ if __name__ == '__main__':
     parser.add_argument('--output_fn', type=str, required=True,
                         help='the output file for the mon map')
     parser.add_argument('--type_mapping', type=str, required=True,
-                        help='one of "random" or "fixed"')
+                        help='"random", "fixed", or a partial list with - and ,')
     args = parser.parse_args()
 
 

@@ -1,6 +1,3 @@
 todo:
 
 - ensure golem quest can be solved
-- fossil resurrections
-- replace gym TM moves with gifts instead of nearest neighbors when possible
-- z score normalization for mon differences (means easier coeff setting for type/ev)
