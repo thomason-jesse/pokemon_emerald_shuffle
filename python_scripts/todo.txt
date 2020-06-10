@@ -1,3 +1,4 @@
 todo:
 
-- ensure golem quest can be solved
+- wally zigzagoon
+- birch zigzagoon

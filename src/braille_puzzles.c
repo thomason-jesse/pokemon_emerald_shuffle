@@ -101,6 +101,7 @@ void DoBrailleDigEffect(void)
 
 bool8 CheckRelicanthWailord(void)
 {
+    return TRUE;  // Just open the dang doors. With A->B mon maps it's too hard to determine which 'mon to get.
     // Emerald change: why did they flip it?
     // First comes Wailord
     if (GetMonData(&gPlayerParty[0], MON_DATA_SPECIES2, 0) == SPECIES_WAILORD)

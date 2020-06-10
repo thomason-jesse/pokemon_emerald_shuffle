@@ -13,36 +13,48 @@ starter_choose_orig_fn = 'orig/starter_choose.c'
 starter_choose_target_fn = '../src/starter_choose.c'
 battle_setup_orig_fn = 'orig/battle_setup.c'
 battle_setup_target_fn = '../src/battle_setup.c'
-fossils_orig_fn = 'orig/FOSSILS_scripts.inc'
-fossils_target_fn = '../data/maps/RustboroCity_DevonCorp_2F/scripts.inc'
 
 # Parameters
 lvl_increase_for_move_strip = 0.1  # Give a 10% boost to pkm lvl if custom moves were removed.
 
-# Lendary encounter path orig -> target files.
-legendary_fn = {"SPECIES_REGIROCK": ['orig/SPECIES_REGIROCK_scripts.inc',
-                                     '../data/maps/DesertRuins/scripts.inc'],
-                "SPECIES_REGICE": ['orig/SPECIES_REGICE_scripts.inc',
-                                   '../data/maps/IslandCave/scripts.inc'],
-                "SPECIES_REGISTEEL": ['orig/SPECIES_REGISTEEL_scripts.inc',
-                                      '../data/maps/AncientTomb/scripts.inc'],
-                "SPECIES_KYOGRE": ['orig/SPECIES_KYOGRE_scripts.inc',
-                                   '../data/maps/MarineCave_End/scripts.inc'],
-                "SPECIES_GROUDON": ['orig/SPECIES_GROUDON_scripts.inc',
-                                   '../data/maps/TerraCave_End/scripts.inc'],
-                "SPECIES_RAYQUAZA": ['orig/SPECIES_RAYQUAZA_scripts.inc',
-                                     '../data/maps/SkyPillar_Top/scripts.inc'],
-                "SPECIES_MEW": ['orig/SPECIES_MEW_scripts.inc',
-                                '../data/maps/FarawayIsland_Interior/scripts.inc'],
-                "SPECIES_LUGIA": ['orig/SPECIES_LUGIA_scripts.inc',
-                                  '../data/maps/NavelRock_Bottom/scripts.inc'],
-                "SPECIES_HO_OH": ['orig/SPECIES_HO_OH_scripts.inc',
-                                  '../data/maps/NavelRock_Top/scripts.inc'],
-                "SPECIES_DEOXYS": ['orig/SPECIES_DEOXYS_scripts.inc',
-                                   '../data/maps/BirthIsland_Exterior/scripts.inc']
+# Encounter path orig -> target files.
+legendary_fn = {"SPECIES_REGIROCK": [['orig/SPECIES_REGIROCK_scripts.inc',
+                                      '../data/maps/DesertRuins/scripts.inc']],
+                "SPECIES_REGICE": [['orig/SPECIES_REGICE_scripts.inc',
+                                    '../data/maps/IslandCave/scripts.inc']],
+                "SPECIES_REGISTEEL": [['orig/SPECIES_REGISTEEL_scripts.inc',
+                                       '../data/maps/AncientTomb/scripts.inc']],
+                "SPECIES_KYOGRE": [['orig/SPECIES_KYOGRE_scripts.inc',
+                                    '../data/maps/MarineCave_End/scripts.inc']],
+                "SPECIES_GROUDON": [['orig/SPECIES_GROUDON_scripts.inc',
+                                     '../data/maps/TerraCave_End/scripts.inc']],
+                "SPECIES_RAYQUAZA": [['orig/SPECIES_RAYQUAZA_scripts.inc',
+                                      '../data/maps/SkyPillar_Top/scripts.inc']],
+                "SPECIES_MEW": [['orig/SPECIES_MEW_scripts.inc',
+                                 '../data/maps/FarawayIsland_Interior/scripts.inc']],
+                "SPECIES_LUGIA": [['orig/SPECIES_LUGIA_scripts.inc',
+                                   '../data/maps/NavelRock_Bottom/scripts.inc']],
+                "SPECIES_HO_OH": [['orig/SPECIES_HO_OH_scripts.inc',
+                                   '../data/maps/NavelRock_Top/scripts.inc']],
+                "SPECIES_DEOXYS": [['orig/SPECIES_DEOXYS_scripts.inc',
+                                    '../data/maps/BirthIsland_Exterior/scripts.inc']],
+                # Not legendary, but encounter setups are the same.
+                "SPECIES_VOLTORB": [['orig/NEW_MAUVILLE_scripts.inc',
+                                     '../data/maps/NewMauville_Inside/scripts.inc']],
+                "SPECIES_ELECTRODE": [['orig/ELECTRODE_scripts.inc',
+                                       '../data/maps/AquaHideout_B1F/scripts.inc']],
+                "SPECIES_SUDOWOODO": [['orig/SUDOWOODO_scripts.inc',
+                                       '../data/maps/BattleFrontier_OutsideEast/scripts.inc']],
+                "SPECIES_KECLEON": [['orig/KECLEON_scripts.inc',
+                                     '../data/maps/Route120/scripts.inc'],
+                                    ['orig/KECLEON_2_scripts.inc',
+                                     '../data/scripts/kecleon.inc']]
                 }
+# Encounter scripts where multiple species are in the file.
 latios_latias_orig_fn = 'orig/LATIOS_LATIAS_scripts.inc'
 latios_latias_target_fn = '../data/maps/SouthernIsland_Interior/scripts.inc'
+fossils_orig_fn = 'orig/FOSSILS_scripts.inc'
+fossils_target_fn = '../data/maps/RustboroCity_DevonCorp_2F/scripts.inc'
 
 # Gym encounter path orig -> target files for replacing TM gifts by orig type.
 gym_fn = {"TYPE_ROCK": ['orig/TYPE_ROCK_scripts.inc',
@@ -206,16 +218,16 @@ def main(args):
 
     # Replace event encounters (one by one basis, looks like).
     for legendary in legendary_fn:
-        src_fn, target_fn = legendary_fn[legendary]
-        with open(target_fn, 'w') as f_target:
-            with open(src_fn, 'r') as f_orig:
-                contents = f_orig.read()
-            contents = contents.replace("%s," % legendary,
-                                        "%s_REPLACED," % mon_map[legendary])
-            contents = contents.replace(", %s" % legendary,
-                                        ", %s_REPLACED" % mon_map[legendary])
-            contents = contents.replace("_REPLACED", "")
-            f_target.write(contents)
+        for src_fn, target_fn in legendary_fn[legendary]:
+            with open(target_fn, 'w') as f_target:
+                with open(src_fn, 'r') as f_orig:
+                    contents = f_orig.read()
+                contents = contents.replace("%s," % legendary,
+                                            "%s_REPLACED," % mon_map[legendary])
+                contents = contents.replace(", %s" % legendary,
+                                            ", %s_REPLACED" % mon_map[legendary])
+                contents = contents.replace("_REPLACED", "")
+                f_target.write(contents)
     # Replace Latios/Latias as a special case (they're in the same file.)
     with open(latios_latias_target_fn, 'w') as f_target:
         with open(latios_latias_orig_fn, 'r') as f_orig:
@@ -257,14 +269,18 @@ def main(args):
     with open(battle_setup_target_fn, 'w') as f_target:
         f_target.write(contents)
 
-    # Replace gym TM gifts.
+    # Replace gym TM gifts and GymGuideAdvice type advice.
     for tm_type in gym_fn:
+        type_str = tm_type.split('_')[1]
         source_fn, target_fn = gym_fn[tm_type]
         with open(target_fn, 'w') as f_target:
             with open(source_fn, 'r') as f_orig:
                 for line in f_orig.readlines():
                     if "giveitem ITEM_" in line:
                         f_target.write("   giveitem %s\n" % tm_gifts[type_map[tm_type]])
+                    elif "%s-type" % type_str in line:
+                        f_target.write(line.replace("%s-type" % type_str,
+                                                    "%s-type" % type_map[tm_type].split('_')[1]))
                     else:
                         f_target.write(line)
 

@@ -38,9 +38,8 @@ def get_a_to_b_penalty(a, b, mon_map, mon_metadata, mon_evolution, type_map,
     if a != b:
         sp = sum([abs(mon_metadata[a][s] - mon_metadata[b][s])
                   for s in stat_data])
-    else:  # Double stat penalty for mapping a mon to itself.
-        sp = sum([mon_metadata[a][s]
-                  for s in stat_data]) * 2
+    else:  # 2 std stat penalty for mapping a mon to itself.
+        sp = 2 * len(stat_data)
     sp /= len(stat_data)
 
     # Penalize inconsistency of evolution form.
@@ -283,11 +282,11 @@ def main(args):
     # Read in wild and trainer files to determine mon importance.
     print("Counting up number of appearances in-game...")
     mon_n_appearances = [0] * n_mon
-    for fn in [trainer_parties_fn, wild_encounters_fn]:
+    for fn, weight in [[trainer_parties_fn, 10], [wild_encounters_fn, 1]]:
         with open(fn, 'r') as f:
             d = f.read()
             for idx in range(n_mon):
-                mon_n_appearances[idx] += d.count(mon_list[idx])
+                mon_n_appearances[idx] += d.count(mon_list[idx]) * weight
     print("... done; counted %d instances from %d to %d" % (sum(mon_n_appearances),
         min(mon_n_appearances), max(mon_n_appearances)))
 
@@ -388,7 +387,8 @@ def main(args):
     # Perform simulated annealing.
     print("Running simulated annealing to tune the solution...")
     for i in range(max_iterations):
-        t = math.log(float(max_iterations) / (i + 1)) + 1
+        # t = math.log(float(max_iterations) / (i + 1)) + 1
+        t = 0.00000000001
         if i % print_every_n_iterations == 0:
             print("%d/%d; t %.5f; penalty %.2f" % (i, max_iterations, t, curr_penalty))
             with open("%s.%d" % (args.output_fn, i), 'w') as f:
