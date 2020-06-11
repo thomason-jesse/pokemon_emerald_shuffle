@@ -18,42 +18,58 @@ battle_setup_target_fn = '../src/battle_setup.c'
 lvl_increase_for_move_strip = 0.1  # Give a 10% boost to pkm lvl if custom moves were removed.
 
 # Encounter path orig -> target files.
-legendary_fn = {"SPECIES_REGIROCK": [['orig/SPECIES_REGIROCK_scripts.inc',
-                                      '../data/maps/DesertRuins/scripts.inc']],
-                "SPECIES_REGICE": [['orig/SPECIES_REGICE_scripts.inc',
-                                    '../data/maps/IslandCave/scripts.inc']],
-                "SPECIES_REGISTEEL": [['orig/SPECIES_REGISTEEL_scripts.inc',
-                                       '../data/maps/AncientTomb/scripts.inc']],
-                "SPECIES_KYOGRE": [['orig/SPECIES_KYOGRE_scripts.inc',
-                                    '../data/maps/MarineCave_End/scripts.inc']],
-                "SPECIES_GROUDON": [['orig/SPECIES_GROUDON_scripts.inc',
-                                     '../data/maps/TerraCave_End/scripts.inc']],
-                "SPECIES_RAYQUAZA": [['orig/SPECIES_RAYQUAZA_scripts.inc',
-                                      '../data/maps/SkyPillar_Top/scripts.inc']],
-                "SPECIES_MEW": [['orig/SPECIES_MEW_scripts.inc',
-                                 '../data/maps/FarawayIsland_Interior/scripts.inc']],
-                "SPECIES_LUGIA": [['orig/SPECIES_LUGIA_scripts.inc',
-                                   '../data/maps/NavelRock_Bottom/scripts.inc']],
-                "SPECIES_HO_OH": [['orig/SPECIES_HO_OH_scripts.inc',
-                                   '../data/maps/NavelRock_Top/scripts.inc']],
-                "SPECIES_DEOXYS": [['orig/SPECIES_DEOXYS_scripts.inc',
-                                    '../data/maps/BirthIsland_Exterior/scripts.inc']],
+legendary_fn = {"SPECIES_REGIROCK":
+                    [['orig/SPECIES_REGIROCK_scripts.inc',
+                      '../data/maps/DesertRuins/scripts.inc']],
+                "SPECIES_REGICE":
+                    [['orig/SPECIES_REGICE_scripts.inc',
+                      '../data/maps/IslandCave/scripts.inc']],
+                "SPECIES_REGISTEEL":
+                    [['orig/SPECIES_REGISTEEL_scripts.inc',
+                      '../data/maps/AncientTomb/scripts.inc']],
+                "SPECIES_KYOGRE":
+                    [['orig/SPECIES_KYOGRE_scripts.inc',
+                      '../data/maps/MarineCave_End/scripts.inc']],
+                "SPECIES_GROUDON":
+                    [['orig/SPECIES_GROUDON_scripts.inc',
+                      '../data/maps/TerraCave_End/scripts.inc']],
+                "SPECIES_RAYQUAZA":
+                    [['orig/SPECIES_RAYQUAZA_scripts.inc',
+                      '../data/maps/SkyPillar_Top/scripts.inc']],
+                "SPECIES_MEW":
+                    [['orig/SPECIES_MEW_scripts.inc',
+                      '../data/maps/FarawayIsland_Interior/scripts.inc']],
+                "SPECIES_LUGIA":
+                    [['orig/SPECIES_LUGIA_scripts.inc',
+                      '../data/maps/NavelRock_Bottom/scripts.inc']],
+                "SPECIES_HO_OH":
+                    [['orig/SPECIES_HO_OH_scripts.inc',
+                      '../data/maps/NavelRock_Top/scripts.inc']],
+                "SPECIES_DEOXYS":
+                    [['orig/SPECIES_DEOXYS_scripts.inc',
+                      '../data/maps/BirthIsland_Exterior/scripts.inc']],
                 # Not legendary, but encounter setups are the same.
-                "SPECIES_VOLTORB": [['orig/NEW_MAUVILLE_scripts.inc',
-                                     '../data/maps/NewMauville_Inside/scripts.inc']],
-                "SPECIES_ELECTRODE": [['orig/ELECTRODE_scripts.inc',
-                                       '../data/maps/AquaHideout_B1F/scripts.inc']],
-                "SPECIES_SUDOWOODO": [['orig/SUDOWOODO_scripts.inc',
-                                       '../data/maps/BattleFrontier_OutsideEast/scripts.inc']],
-                "SPECIES_KECLEON": [['orig/KECLEON_scripts.inc',
-                                     '../data/maps/Route120/scripts.inc'],
-                                    ['orig/KECLEON_2_scripts.inc',
-                                     '../data/scripts/kecleon.inc']],
+                "SPECIES_VOLTORB":
+                    [['orig/NEW_MAUVILLE_scripts.inc',
+                      '../data/maps/NewMauville_Inside/scripts.inc']],
+                "SPECIES_ELECTRODE":
+                    [['orig/ELECTRODE_scripts.inc',
+                      '../data/maps/AquaHideout_B1F/scripts.inc']],
+                "SPECIES_SUDOWOODO":
+                    [['orig/SUDOWOODO_scripts.inc',
+                      '../data/maps/BattleFrontier_OutsideEast/scripts.inc']],
+                "SPECIES_KECLEON":
+                    [['orig/KECLEON_scripts.inc',
+                      '../data/maps/Route120/scripts.inc'],
+                     ['orig/KECLEON_2_scripts.inc',
+                      '../data/scripts/kecleon.inc']],
                 # Gift given mon where only one appears per script.
-                "SPECIES_CASTFORM": [['orig/CASTFORM_scripts.inc',
-                                      '../data/maps/Route119_WeatherInstitute_2F/scripts.inc']],
-                "SPECIES_BELDUM": [['orig/BELDUM_scripts.inc',
-                                    '../data/maps/MossdeepCity_StevensHouse/scripts.inc']]
+                "SPECIES_CASTFORM":
+                    [['orig/CASTFORM_scripts.inc',
+                      '../data/maps/Route119_WeatherInstitute_2F/scripts.inc']],
+                "SPECIES_BELDUM":
+                    [['orig/BELDUM_scripts.inc',
+                      '../data/maps/MossdeepCity_StevensHouse/scripts.inc']]
                 }
 # Encounter/gift scripts where multiple species are in the file.
 latios_latias_orig_fn = 'orig/LATIOS_LATIAS_scripts.inc'
@@ -62,24 +78,33 @@ fossils_orig_fn = 'orig/FOSSILS_scripts.inc'
 fossils_target_fn = '../data/maps/RustboroCity_DevonCorp_2F/scripts.inc'
 
 # Gym encounter path orig -> target files for replacing TM gifts by orig type.
-gym_fn = {"TYPE_ROCK": ['orig/TYPE_ROCK_scripts.inc',
-                        '../data/maps/RustboroCity_Gym/scripts.inc'],
-          "TYPE_FIGHTING": ['orig/TYPE_FIGHTING_scripts.inc',
-                            '../data/maps/DewfordTown_Gym/scripts.inc'],
-          "TYPE_ELECTRIC": ['orig/TYPE_ELECTRIC_scripts.inc',
-                            '../data/maps/MauvilleCity_Gym/scripts.inc'],
-          "TYPE_FIRE": ['orig/TYPE_FIRE_scripts.inc',
-                            '../data/maps/LavaridgeTown_Gym_1F/scripts.inc'],
-          "TYPE_NORMAL": ['orig/TYPE_NORMAL_scripts.inc',
-                            '../data/maps/PetalburgCity_Gym/scripts.inc'],
-          "TYPE_FLYING": ['orig/TYPE_FLYING_scripts.inc',
-                            '../data/maps/FortreeCity_Gym/scripts.inc'],
-          "TYPE_PSYCHIC": ['orig/TYPE_PSYCHIC_scripts.inc',
-                            '../data/maps/MossdeepCity_Gym/scripts.inc'],
-          "TYPE_WATER": ['orig/TYPE_WATER_scripts.inc',
-                            '../data/maps/SootopolisCity_Gym_1F/scripts.inc'],
-          "TYPE_STEEL": ['orig/TYPE_STEEL_scripts.inc',  # Steven's gift in Dewford
-                            '../data/maps/GraniteCave_StevensRoom/scripts.inc'],
+gym_fn = {"TYPE_ROCK":
+              ['orig/TYPE_ROCK_scripts.inc',
+               '../data/maps/RustboroCity_Gym/scripts.inc'],
+          "TYPE_FIGHTING":
+              ['orig/TYPE_FIGHTING_scripts.inc',
+               '../data/maps/DewfordTown_Gym/scripts.inc'],
+          "TYPE_ELECTRIC":
+              ['orig/TYPE_ELECTRIC_scripts.inc',
+               '../data/maps/MauvilleCity_Gym/scripts.inc'],
+          "TYPE_FIRE":
+              ['orig/TYPE_FIRE_scripts.inc',
+               '../data/maps/LavaridgeTown_Gym_1F/scripts.inc'],
+          "TYPE_NORMAL":
+              ['orig/TYPE_NORMAL_scripts.inc',
+               '../data/maps/PetalburgCity_Gym/scripts.inc'],
+          "TYPE_FLYING":
+              ['orig/TYPE_FLYING_scripts.inc',
+               '../data/maps/FortreeCity_Gym/scripts.inc'],
+          "TYPE_PSYCHIC":
+              ['orig/TYPE_PSYCHIC_scripts.inc',
+               '../data/maps/MossdeepCity_Gym/scripts.inc'],
+          "TYPE_WATER":
+              ['orig/TYPE_WATER_scripts.inc',
+               '../data/maps/SootopolisCity_Gym_1F/scripts.inc'],
+          "TYPE_STEEL":  # Steven's gift in Dewford
+              ['orig/TYPE_STEEL_scripts.inc',
+               '../data/maps/GraniteCave_StevensRoom/scripts.inc'],
          }
 
 # TM gifts per type.
@@ -100,7 +125,7 @@ tm_gifts = {"TYPE_FIGHTING": "ITEM_TM01",  # FOCUS PUNCH
             "TYPE_WATER": "ITEM_TM03",  # WATER PULSE
             "TYPE_DARK": "ITEM_TM49",  # SNATCH
             "TYPE_ROCK": "ITEM_TM39"  # ROCK TOMB
-           }
+            }
 # TM gifts move overrides by leader.
 tm_gift_overrides = {"TYPE_FIGHTING": "MOVE_FOCUS_PUNCH",  # FOCUS PUNCH
                      "TYPE_FLYING": "MOVE_AERIAL_ACE",  # AERIAL ACE
@@ -119,7 +144,7 @@ tm_gift_overrides = {"TYPE_FIGHTING": "MOVE_FOCUS_PUNCH",  # FOCUS PUNCH
                      "TYPE_WATER": "MOVE_WATER_PULSE",  # WATER PULSE
                      "TYPE_DARK": "MOVE_SNATCH",  # SNATCH
                      "TYPE_ROCK": "MOVE_ROCK_TOMB"  # ROCK TOMB
-                    }
+                     }
 tm_gift_overrides_r = {tm_gift_overrides[t]: t for t in tm_gift_overrides}
 leader_name_strs = {'Roxanne': "TYPE_ROCK", 'Brawly': "TYPE_FIGHTING",
                     'Wattson': "TYPE_ELECTRIC", 'Flannery': "TYPE_FIRE",
@@ -140,7 +165,6 @@ def main(args):
         print("WARNING: will remove custom moves and increase levels by %.2f percent." % lvl_increase_for_move_strip)
 
     # Replace wild encounters.
-    wild_encounter_str = ''
     # First, just copy the contents of the original file.
     with open(wild_encounters_orig_fn, 'r') as f_orig:
         wild_encounter_str = f_orig.read()
@@ -162,7 +186,7 @@ def main(args):
         curr_leader = False
         for line in f_orig.readlines():
             if "static const struct" in line:
-                #static const struct TrainerMonNoItemDefaultMoves sParty_MayRustboroTorchic[] = {\n 
+                # static const struct TrainerMonNoItemDefaultMoves sParty_MayRustboroTorchic[] = {\n
                 curr_leader = None
                 for l in leader_name_strs:
                     if "_%s" % l in line:
@@ -190,8 +214,8 @@ def main(args):
                     else:
                         for idx in range(len(moves)):
                             if moves[idx] != "MOVE_NONE":
-                                if (moves[idx] in tm_gift_overrides_r and 
-                                    tm_gift_overrides_r[moves[idx]] == leader_name_strs[curr_leader]):
+                                if (moves[idx] in tm_gift_overrides_r and
+                                        tm_gift_overrides_r[moves[idx]] == leader_name_strs[curr_leader]):
                                     gift_type = tm_gift_overrides_r[moves[idx]]
                                     moves[idx] = tm_gift_overrides[type_map[gift_type]]
                                 else:
@@ -239,7 +263,7 @@ def main(args):
             contents = f_orig.read()
         for legendary in ['SPECIES_LATIOS', 'SPECIES_LATIAS']:
             contents = contents.replace("%s," % legendary,
-                                            "%s_REPLACED," % mon_map[legendary])
+                                        "%s_REPLACED," % mon_map[legendary])
             contents = contents.replace("_REPLACED", "")
         f_target.write(contents)
     # Replace Lileep/Anorith as a special case (they're in the same file.)
@@ -253,7 +277,6 @@ def main(args):
         f_target.write(contents)
 
     # Replace starters
-    starter_choose_str = ''
     # First, just copy the contents of the original file.
     with open(starter_choose_orig_fn, 'r') as f_orig:
         starter_choose_str = f_orig.read()

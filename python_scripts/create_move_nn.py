@@ -23,6 +23,7 @@ type_coeff = 2
 target_coeff = 1
 flag_coeff = 1  # IOU * this coeff
 
+
 # Real valued properties have been z-score normalized, so a diff of 1 corresponds to a std deviation.
 # So, we can use 1 as a distance for other effect differences to say, roughly, that the move
 # falls another standard deviation away on a discrete metric (e.g., effect type).
@@ -46,12 +47,13 @@ def get_move_distance(a, b, type_map):
 
     # IOU of the flags.
     if len(a["flags"]) > 0 or len(b["flags"]) > 0:
-        flag_diff = 1 - (len(set(a["flags"]).intersection(set(b["flags"]))) / float(len(set(a["flags"]).union(set(b["flags"])))))
+        flag_diff = 1 - (len(set(a["flags"]).intersection(set(b["flags"]))) /
+                         float(len(set(a["flags"]).union(set(b["flags"])))))
     else:
         flag_diff = 0
     flag_diff = flag_diff * flag_coeff
 
-    return effect_diff + numerical_diff + type_diff + flag_diff
+    return effect_diff + numerical_diff + type_diff + target_diff + flag_diff
 
 
 def main(args):
@@ -115,7 +117,7 @@ def main(args):
     # Writer nearest neighbor lists.
     move_nns = {}
     for idx in range(n_moves):
-        jdxs = np.argsort(dist[idx])  #get min jdxs
+        jdxs = np.argsort(dist[idx])  # get min jdxs
         move_nns[move_list[idx]] = [move_list[jdx] for jdx in jdxs]
     print("done... got %dx%d matrix of move distances" % (n_moves, n_moves))
 
@@ -126,7 +128,7 @@ def main(args):
         curr_mon = None
         for line in f.readlines():
             if "LevelUpLearnset[] = {" in line:
-                #static const u16 sBulbasaurLevelUpLearnset[] = {
+                # static const u16 sBulbasaurLevelUpLearnset[] = {
                 ps = line.split(" u16 ")
                 mon = ps[1][1:ps[1].index('[')].replace("LevelUpLearnset", "")
                 mon = "SPECIES_%s" % mon.upper()

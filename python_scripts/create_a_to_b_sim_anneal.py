@@ -22,23 +22,34 @@ int_data = ['baseHP', 'baseAttack', 'baseDefense', 'baseSpeed', 'baseSpAttack',
 stat_data = ['baseHP', 'baseAttack', 'baseDefense',
              'baseSpeed', 'baseSpAttack', 'baseSpDefense']
 
-# Simulated annealing and scoring hyperparameters.
+# Penalty hyperparameters.
+stat_coeff = 1  # Use z score norm on stats, so 1 std dev in sum stat difference
+evol_coeff = 5  # Penalize standard deviations for missing an evolution.
+type_coeff = 3  # Penalize standard deviations for deviating from the target types.
+
+# Simulated annealing hyperparameters.
 max_iterations = 100000
 print_every_n_iterations = max_iterations / 10
-stat_coeff = 1  # Use z score norm on stats, so 1 std dev in sum stat difference
-evol_coeff = 3  # Penalize 3 standard deviations for missing an evolution.
-type_coeff = 2  # Penalize 2 standard deviations for deviating from the target types.
 swaps_for_neighbor = 1  # how many assignment swaps to perform per iteration.
+
+# Analytical solution hyperparameters.
 starter_species = ['SPECIES_TREECKO', 'SPECIES_TORCHIC', 'SPECIES_MUDKIP']
-assignment_beam = 20  # how many assignments to try in analytical solution.
+# all_starter_species = starter_species + ['SPECIES_CYNDAQUIL', 'SPECIES_TOTODILE', 'SPECIES_CHIKORITA']
+# all_starter_species += ['SPECIES_SQUIRTLE', 'SPECIES_CHARMANDER', 'SPECIES_BULBASAUR']
+assignment_beam = 20  # max assignments to try in analytical solution.
+
 
 def get_a_to_b_penalty(a, b, mon_map, mon_metadata, mon_evolution, type_map,
                        penalize_same_type):
     # Average difference in z score normalized stats forms the main part of the penalty.
-    if a != b:
-        sp = sum([abs(mon_metadata[a][s] - mon_metadata[b][s])
-                  for s in stat_data])
-    else:  # 2 std stat penalty for mapping a mon to itself.
+    if a != b and not (a in starter_species and b in starter_species):
+        # Average difference per stat (encourages matching fast with fast, etc.).
+        # sp = sum([abs(mon_metadata[a][s] - mon_metadata[b][s])
+        #           for s in stat_data])
+        # Difference total normalized by num stats (encourages stat total match only).
+        sp = abs(sum([mon_metadata[a][s] for s in stat_data]) -
+                 sum([mon_metadata[b][s] for s in stat_data]))
+    else:  # 2 std stat penalty for mapping a mon to itself or for mapping a starter to a starter.
         sp = 2 * len(stat_data)
     sp /= len(stat_data)
 
@@ -65,11 +76,11 @@ def get_a_to_b_penalty(a, b, mon_map, mon_metadata, mon_evolution, type_map,
 
     # Penalize rough type map mismatch. tp=1 means full mismatch / 0 perfect match.
     tp = 0
-    for type_str in ["type1", "type2"]:
+    for type_str, weight in [["type1", 0.67], ["type2", 0.33]]:
         if (mon_metadata[b][type_str] != type_map[mon_metadata[a][type_str]] or
-            # Penalize for mismatch in mapping (above) or mapping a type to itself (below).
-            (penalize_same_type and type_map[mon_metadata[a][type_str]] == mon_metadata[a][type_str])):
-            tp += 0.5
+                # Penalize for mismatch in mapping (above) or mapping a type to itself (below).
+                (penalize_same_type and type_map[mon_metadata[a][type_str]] == mon_metadata[a][type_str])):
+            tp += weight
 
     total_penalty = (sp * stat_coeff) + (ep * evol_coeff) + (tp * type_coeff)
     return total_penalty, sp, ep, tp
@@ -92,17 +103,14 @@ def score_map(mon_map, mon_list, type_list, mon_metadata, mon_evolution, penaliz
     rough_type_to_type = {}
     not_in_domain = type_list[:]
     not_in_range = type_list[:]
-    maxmax = 0
-    for _  in range(len(type_list)):
+    for _ in range(len(type_list)):
         maxes = [max(type_to_type_counts[idx]) for idx in range(len(type_list))]
-        maxmax = max(maxes)
-        idx_to_assign = np.argmax(maxes)
+        idx_to_assign = int(np.argmax(maxes))
         candidates = [jdx for jdx in range(len(type_list))
                       if np.isclose(type_to_type_counts[idx_to_assign][jdx], 
                                     maxes[idx_to_assign])]
         jdx_assigned = random.choice(candidates)
         rough_type_to_type[type_list[idx_to_assign]] = type_list[jdx_assigned]
-        # print("%.2f %s->%s" % (maxmax, type_list[idx_to_assign], type_list[jdx_assigned]))
         del not_in_domain[not_in_domain.index(type_list[idx_to_assign])]
         del not_in_range[not_in_range.index(type_list[jdx_assigned])]
         # Remove these entries from the count structure.
@@ -142,14 +150,18 @@ def score_map(mon_map, mon_list, type_list, mon_metadata, mon_evolution, penaliz
         tpt += tp * type_coeff
 
         if as_exp_str:
-            exp_str += "%s->%s\t\tsp=%.2f(%.2f)\tep=%d(%d)\ttp=%d(%d)\n" % (a, b,
-                sp, sp * stat_coeff,
-                ep, ep * evol_coeff,
-                tp, tp * type_coeff)
+            exp_str += "%s->%s\t\tsp=%.2f(%.2f)\tep=%d(%d)\ttp=%d(%d)\n" % \
+                       (a, b,
+                        sp, sp * stat_coeff,
+                        ep, ep * evol_coeff,
+                        tp, tp * type_coeff)
 
     if as_exp_str:
-        exp_str += "\nPenalty total: %d\tspt=%d(%.2f)\tept=%d(%.2f)\ttpt=%d(%.2f)" % (penalty,
-            spt, spt / float(penalty), ept, ept / float(penalty), tpt, tpt / float(penalty))
+        exp_str += "\nPenalty total: %d\tspt=%d(%.2f)\tept=%d(%.2f)\ttpt=%d(%.2f)" % \
+                   (penalty,
+                    spt, spt / float(penalty),
+                    ept, ept / float(penalty),
+                    tpt, tpt / float(penalty))
         return exp_str
 
     return penalty, penalty_per_mon, rough_type_to_type
@@ -277,6 +289,12 @@ def main(args):
                 #                             {EVO_ITEM, ITEM_SUN_STONE, SPECIES_BELLOSSOM}},
                 species_b = line.strip().split(',')[2].strip().strip('{}')
                 mon_evolution[curr_mon].append(species_b)
+    mon_evolution_r = {}
+    for a in mon_evolution:
+        for b in mon_evolution[a]:
+            if b in mon_evolution_r:
+                print("WARNING: multiple base species for %d" % b)
+            mon_evolution_r[b] = a
     print("Read in %d mon evolutions" % len(mon_evolution))
 
     # Read in wild and trainer files to determine mon importance.
@@ -287,8 +305,8 @@ def main(args):
             d = f.read()
             for idx in range(n_mon):
                 mon_n_appearances[idx] += d.count(mon_list[idx]) * weight
-    print("... done; counted %d instances from %d to %d" % (sum(mon_n_appearances),
-        min(mon_n_appearances), max(mon_n_appearances)))
+    print("... done; counted %d instances from %d to %d" %
+          (sum(mon_n_appearances), min(mon_n_appearances), max(mon_n_appearances)))
 
     # Perform simulated annealing over an analytically chosen, greedy initial assignment.
     mon_map = {}
@@ -331,26 +349,34 @@ def main(args):
     for s in starter_species:  # Ensure starters are assigned first.
         mon_n_appearances[mon_list.index(s)] += max(mon_n_appearances)
     mon_by_importance = [mon_list[idx] for idx in
-                         sorted(range(n_mon), key=lambda k:mon_n_appearances[k], reverse=True)]
+                         sorted(range(n_mon), key=lambda ky:mon_n_appearances[ky], reverse=True)]
     print("... First, assigning by importance (ranked list of mon appearance in-game)...")
     for a in mon_by_importance:
         dom_idx = mon_list.index(a)
         if mon_n_appearances[dom_idx] == 0:
             break
+        # If this is an evolution and the base form isn't mapped, map the base instead.
+        if a in mon_evolution_r:
+            base = a
+            while base in mon_evolution_r:
+                base = mon_evolution_r[base]
+            if base not in mon_map:
+                # print("Was going to assign %s, but assigning base %s instead" % (a, base))  # DEBUG
+                a = base
+                dom_idx = mon_list.index(a)
         if a in mon_evolution:  # need to run beam search rather than taking the single best.
             k = assignment_beam
         else:
             k = 1
         best_jdx = None
         lowest_penalty = None
-        kidxs = np.argpartition(a_to_b_penalty[dom_idx], k)[:k]  #get k min jdxs
+        kidxs = np.argpartition(a_to_b_penalty[dom_idx], k)[:k]  # get k min jdxs
         for kidx in kidxs:
             if a_to_b_penalty[dom_idx, kidx] == float("inf"):
                 break
             ab_p_copy = a_to_b_penalty.copy()
             image_copy = mon_image.copy()
             mon_map_copy = {m: mon_map[m] for m in mon_map}
-            # print("\tbeam try %s->%s (%.2f)" % (mon_list[dom_idx], mon_list[kidx], a_to_b_penalty[dom_idx, kidx]))  # DEBUG
             kidx_p = make_assignment_and_propagate(ab_p_copy, dom_idx, kidx, type_map,
                                                    mon_map_copy, image_copy, mon_list,
                                                    mon_evolution, mon_metadata, penalize_same_type)
@@ -358,25 +384,22 @@ def main(args):
                 best_jdx = kidx
                 lowest_penalty = kidx_p
         if best_jdx is not None:
-            # print("final assignment")  # DEBUG
             make_assignment_and_propagate(a_to_b_penalty, dom_idx, best_jdx, type_map,
                                           mon_map, mon_image, mon_list, mon_evolution, mon_metadata,
                                           penalize_same_type, debug=True)
-        # else:
-            # print("Warning: could not assign %s during importance phase" % a)
     print("...... done")
 
     # For remainder, greedily select the current least penalty assignment 
     # and make it until finished.
     print("... Now assigning remainder based on minimizing penalty only...")
-    all_assigned = len(set(mon_map.keys()).intersection(set(mon_list))) == len(mon_list)
+    all_assigned = len(mon_map.keys()) == len(mon_list)
     while not all_assigned:
         min_idx_jdx = np.argmin(a_to_b_penalty)
         dom_idx, img_jdx = int(min_idx_jdx // n_mon), int(min_idx_jdx % n_mon)
         make_assignment_and_propagate(a_to_b_penalty, dom_idx, img_jdx, type_map,
                                       mon_map, mon_image, mon_list, mon_evolution, mon_metadata,
                                       penalize_same_type)
-        all_assigned = len(set(mon_map.keys()).intersection(set(mon_list))) == len(mon_list)
+        all_assigned = len(mon_map.keys()) == len(mon_list)
 
     curr_penalty, curr_mon_penalty, type2type = score_map(mon_map, mon_list, type_list,
                                                           mon_metadata, mon_evolution,
@@ -385,36 +408,36 @@ def main(args):
     print("... done; init penalty %.2f" % curr_penalty)
 
     # Perform simulated annealing.
-    print("Running simulated annealing to tune the solution...")
-    for i in range(max_iterations):
-        # t = math.log(float(max_iterations) / (i + 1)) + 1
-        t = 0.00000000001
-        if i % print_every_n_iterations == 0:
-            print("%d/%d; t %.5f; penalty %.2f" % (i, max_iterations, t, curr_penalty))
-            with open("%s.%d" % (args.output_fn, i), 'w') as f:
-                f.write(score_map(mon_map, mon_list, type_list, mon_metadata, mon_evolution,
-                                  penalize_same_type, as_exp_str=True))
+    if args.tune_w_sa == 1:
+        print("Running simulated annealing to tune the solution...")
+        for i in range(max_iterations):
+            t = math.log(float(max_iterations) / (i + 1)) + 1
+            if i % print_every_n_iterations == 0:
+                print("%d/%d; t %.5f; penalty %.2f" % (i, max_iterations, t, curr_penalty))
+                with open("%s.%d" % (args.output_fn, i), 'w') as f:
+                    f.write(score_map(mon_map, mon_list, type_list, mon_metadata, mon_evolution,
+                                      penalize_same_type, as_exp_str=True))
 
-        # Create a nearest neighbor assignment.
-        neighbor = {a: mon_map[a] for a in mon_map}
-        for _ in range(swaps_for_neighbor):
-            # select (a -> b & c -> d) to create (a -> d & c -> b)
-            a, c = random.choices(mon_list, weights=curr_mon_penalty, k=2)
-            b, d = neighbor[a], neighbor[c]
-            neighbor[a] = d
-            neighbor[c] = b
-        
-        # Score the neighbor and accept it based on temp.
-        neighbor_penalty, n_mon_penalty, n_type2type = score_map(neighbor, mon_list, type_list,
-                                                                 mon_metadata, mon_evolution,
-                                                                 penalize_same_type)
-        if (neighbor_penalty < curr_penalty or 
-            random.random() < math.exp((curr_penalty - neighbor_penalty) / t)):
-            mon_map = neighbor
-            curr_penalty = neighbor_penalty
-            curr_mon_penalty = n_mon_penalty
-            type2type = n_type2type
-    print("... done; final penalty %.2f" % curr_penalty)
+            # Create a nearest neighbor assignment.
+            neighbor = {a: mon_map[a] for a in mon_map}
+            for _ in range(swaps_for_neighbor):
+                # select (a -> b & c -> d) to create (a -> d & c -> b)
+                a, c = random.choices(mon_list, weights=curr_mon_penalty, k=2)
+                b, d = neighbor[a], neighbor[c]
+                neighbor[a] = d
+                neighbor[c] = b
+            
+            # Score the neighbor and accept it based on temp.
+            neighbor_penalty, n_mon_penalty, n_type2type = score_map(neighbor, mon_list, type_list,
+                                                                     mon_metadata, mon_evolution,
+                                                                     penalize_same_type)
+            if (neighbor_penalty < curr_penalty or 
+                random.random() < math.exp((curr_penalty - neighbor_penalty) / t)):
+                mon_map = neighbor
+                curr_penalty = neighbor_penalty
+                curr_mon_penalty = n_mon_penalty
+                type2type = n_type2type
+        print("... done; final penalty %.2f" % curr_penalty)
 
     # Write the result.
     print("Writing results to JSON format...")
@@ -430,6 +453,8 @@ if __name__ == '__main__':
                         help='the output file for the mon map')
     parser.add_argument('--type_mapping', type=str, required=True,
                         help='"random", "fixed", or a partial list with - and ,')
+    parser.add_argument('--tune_w_sa', type=int, required=True,
+                        help='whether to tune with simulated annealing after analytical solution')
     args = parser.parse_args()
 
 
