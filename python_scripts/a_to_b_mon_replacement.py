@@ -48,9 +48,14 @@ legendary_fn = {"SPECIES_REGIROCK": [['orig/SPECIES_REGIROCK_scripts.inc',
                 "SPECIES_KECLEON": [['orig/KECLEON_scripts.inc',
                                      '../data/maps/Route120/scripts.inc'],
                                     ['orig/KECLEON_2_scripts.inc',
-                                     '../data/scripts/kecleon.inc']]
+                                     '../data/scripts/kecleon.inc']],
+                # Gift given mon where only one appears per script.
+                "SPECIES_CASTFORM": [['orig/CASTFORM_scripts.inc',
+                                      '../data/maps/Route119_WeatherInstitute_2F/scripts.inc']],
+                "SPECIES_BELDUM": [['orig/BELDUM_scripts.inc',
+                                    '../data/maps/MossdeepCity_StevensHouse/scripts.inc']]
                 }
-# Encounter scripts where multiple species are in the file.
+# Encounter/gift scripts where multiple species are in the file.
 latios_latias_orig_fn = 'orig/LATIOS_LATIAS_scripts.inc'
 latios_latias_target_fn = '../data/maps/SouthernIsland_Interior/scripts.inc'
 fossils_orig_fn = 'orig/FOSSILS_scripts.inc'
