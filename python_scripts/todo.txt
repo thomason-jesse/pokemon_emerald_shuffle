@@ -2,3 +2,4 @@ todo:
 
 - wally zigzagoon
 - birch zigzagoon
+- give international dex at the beginning
