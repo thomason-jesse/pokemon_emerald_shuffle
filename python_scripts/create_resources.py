@@ -7,6 +7,8 @@ import numpy as np
 # Paths.
 base_stats_orig_fn = 'orig/base_stats.h'
 evolution_fn = 'orig/evolution.h'
+level_up_learnsets_fn = 'orig/level_up_learnsets.h'
+tmhm_learnsets_fn = 'orig/tmhm_learnsets.h'
 
 
 # Metadata consts.
@@ -73,11 +75,74 @@ def main(args):
                 mon_evolution[curr_mon].append(species_b)
     print("Read in %d mon evolutions" % len(mon_evolution))
 
+    # Read in level up and TMHM learnsets.
+    mon_levelup_moveset = {}  # lists of [level_learned, move_name]
+    n_levelup_moves = 0
+    with open(level_up_learnsets_fn, 'r') as f:
+        curr_mon = None
+        for line in f.readlines():
+            if "LevelUpLearnset[] = {" in line:
+                # static const u16 sBulbasaurLevelUpLearnset[] = {
+                ps = line.split(" u16 ")
+                mon = ps[1][1:ps[1].index('[')].replace("LevelUpLearnset", "")
+                mon = "SPECIES_%s" % mon.upper()
+                if mon == "SPECIES_NIDORANF":
+                    mon = "SPECIES_NIDORAN_F"
+                elif mon == "SPECIES_NIDORANM":
+                    mon = "SPECIES_NIDORAN_M"
+                elif mon == "SPECIES_MRMIME":
+                    mon = "SPECIES_MR_MIME"
+                elif mon == "SPECIES_HOOH":
+                    mon = "SPECIES_HO_OH"
+                if mon not in mon_levelup_moveset:
+                    mon_levelup_moveset[mon] = []
+                curr_mon = mon
+            elif curr_mon is not None:
+                if "LEVEL_UP_MOVE" in line:
+                    #    LEVEL_UP_MOVE( 1, MOVE_TACKLE),\n
+                    ps = line.strip().split(",")
+                    level = int(ps[0][ps[0].index('(') + 1:].strip().strip(','))
+                    move = ps[1].strip().strip(',()')
+                    mon_levelup_moveset[curr_mon].append([level, move])
+                    n_levelup_moves += 1
+    print("Read in %d level up moves" % n_levelup_moves)
+    mon_tmhm_moveset = {}  # list of TMHM moves
+    n_tmhm_moves = 0
+    with open(tmhm_learnsets_fn, 'r') as f:
+        curr_mon = None
+        for line in f.readlines():
+            if "[SPECIES_" in line:
+                #    [SPECIES_BULBASAUR]   = TMHM_LEARNSET(TMHM(TM06_TOXIC)\n
+                ps = line.split("[SPECIES_")
+                mon = ps[1][:ps[1].index(']')]
+                if mon == "NONE":
+                    continue
+                mon = "SPECIES_%s" % mon
+                if mon not in mon_tmhm_moveset:
+                    mon_tmhm_moveset[mon] = []
+                curr_mon = mon
+                # move on this line
+                if line.count('TMHM') > 1:
+                    tmhm = line.split('TMHM')[2].strip().strip('()')
+                    move = '_'.join(tmhm.split('_')[1:]).strip('(),')
+                    mon_tmhm_moveset[curr_mon].append("MOVE_%s" % move)
+                    n_tmhm_moves += 1
+            elif curr_mon is not None:
+                if "TMHM" in line:
+                    #                                        | TMHM(TM09_BULLET_SEED)\n
+                    tmhm = line.split('TMHM')[1].strip().strip('()')
+                    move = '_'.join(tmhm.split('_')[1:]).strip('(),')
+                    mon_tmhm_moveset[curr_mon].append("MOVE_%s" % move)
+                    n_tmhm_moves += 1
+    print("Read in %d TM/HM moves" % n_tmhm_moves)
+
     # Write the result.
     print("Writing data to JSON format...")
     d = {"mon_metadata": mon_metadata,
          "type_list": type_list,
-         "mon_evolution": mon_evolution}
+         "mon_evolution": mon_evolution,
+         "mon_levelup_moveset": mon_levelup_moveset,
+         "mon_tmhm_moveset": mon_tmhm_moveset}
     with open(args.output_fn, 'w') as f:
         json.dump(d, f, indent=2)
     print("... done")

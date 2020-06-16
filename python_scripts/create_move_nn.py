@@ -1,10 +1,6 @@
 import argparse
 import json
-import math
 import numpy as np
-import os
-import random
-import sys
 
 
 # Paths.
@@ -121,56 +117,18 @@ def main(args):
         move_nns[move_list[idx]] = [move_list[jdx] for jdx in jdxs]
     print("done... got %dx%d matrix of move distances" % (n_moves, n_moves))
 
-    # Read in level up and TMHM learnsets.
-    mon_moveset = {}  # mon -> list of moves
-    n_levelup_moves = 0
-    with open(level_up_learnsets_fn, 'r') as f:
-        curr_mon = None
-        for line in f.readlines():
-            if "LevelUpLearnset[] = {" in line:
-                # static const u16 sBulbasaurLevelUpLearnset[] = {
-                ps = line.split(" u16 ")
-                mon = ps[1][1:ps[1].index('[')].replace("LevelUpLearnset", "")
-                mon = "SPECIES_%s" % mon.upper()
-                if mon not in mon_moveset:
-                    mon_moveset[mon] = set()
-                curr_mon = mon
-            elif curr_mon is not None:
-                if "LEVEL_UP_MOVE" in line:
-                    #    LEVEL_UP_MOVE( 1, MOVE_TACKLE),\n
-                    ps = line.strip().split(",")
-                    move = ps[1].strip().strip(',()')
-                    mon_moveset[curr_mon].add(move)
-                    n_levelup_moves += 1
-    print("Read in %d level up moves" % n_levelup_moves)
-    n_tmhm_moves = 0
-    with open(tmhm_learnsets_fn, 'r') as f:
-        curr_mon = None
-        for line in f.readlines():
-            if "[SPECIES_" in line:
-                #    [SPECIES_BULBASAUR]   = TMHM_LEARNSET(TMHM(TM06_TOXIC)\n
-                ps = line.split("[SPECIES_")
-                mon = ps[1][:ps[1].index(']')]
-                if mon == "NONE":
-                    continue
-                mon = "SPECIES_%s" % mon
-                if mon not in mon_moveset:
-                    mon_moveset[mon] = set()
-                curr_mon = mon
-                # move on this line
-                if line.count('TMHM') > 1:
-                    tmhm = line.split('TMHM')[2].strip().strip('()')
-                    move = '_'.join(tmhm.split('_')[1:]).strip('(),')
-                    mon_moveset[curr_mon].add("MOVE_%s" % move)
-                    n_tmhm_moves += 1
-            elif curr_mon is not None:
-                if "TMHM" in line:
-                    #                                        | TMHM(TM09_BULLET_SEED)\n
-                    tmhm = line.split('TMHM')[1].strip().strip('()')
-                    move = '_'.join(tmhm.split('_')[1:]).strip('(),')
-                    mon_moveset[curr_mon].add("MOVE_%s" % move)
-                    n_tmhm_moves += 1
-    print("Read in %d TM/HM moves" % n_tmhm_moves)
+    # Read in mon movesets.
+    with open(args.input_metadata_fn, 'r') as f:
+        d = json.load(f)
+        mon_levelup_moveset = d["mon_levelup_moveset"]
+        mon_tmhm_moveset = d["mon_tmhm_moveset"]
+    mon_moveset = {}
+    for a in mon_map:
+        mon_moveset[a] = set()
+        for _, move in mon_levelup_moveset[a]:
+            mon_moveset[a].add(move)
+        for move in mon_tmhm_moveset[a]:
+            mon_moveset[a].add(move)
 
     # For every move a 'mon can learn or be taught, select the best replacement.
     print("Creating map per mon from all moves to nearest neighbor under this distance...")
@@ -197,6 +155,8 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Adds all moves' nearest neighbors to assignment file.")
     parser.add_argument('--input_fn', type=str, required=True,
                         help='the input JSON of mon and type maps')
+    parser.add_argument('--input_metadata_fn', type=str, required=True,
+                        help='the input JSON of mon metadata')
     parser.add_argument('--output_fn', type=str, required=True,
                         help='the output JSON for the move ranks')
     args = parser.parse_args()

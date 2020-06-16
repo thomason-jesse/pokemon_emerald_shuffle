@@ -1,6 +1,5 @@
 import argparse
 import json
-import numpy as np
 
 # Paths.
 wild_encounters_orig_fn = 'orig/wild_encounters.h'
@@ -13,6 +12,8 @@ starter_choose_orig_fn = 'orig/starter_choose.c'
 starter_choose_target_fn = '../src/starter_choose.c'
 battle_setup_orig_fn = 'orig/battle_setup.c'
 battle_setup_target_fn = '../src/battle_setup.c'
+battle_tower_orig_fn = 'orig/battle_tower.c'
+battle_tower_target_fn = '../src/battle_tower.c'
 
 # Parameters
 lvl_increase_for_move_strip = 0.1  # Give a 10% boost to pkm lvl if custom moves were removed.
@@ -78,33 +79,48 @@ fossils_orig_fn = 'orig/FOSSILS_scripts.inc'
 fossils_target_fn = '../data/maps/RustboroCity_DevonCorp_2F/scripts.inc'
 
 # Gym encounter path orig -> target files for replacing TM gifts by orig type.
+# Also changes chats to mention the correct type, either from the Aide (gym) or leader (E4).
 gym_fn = {"TYPE_ROCK":
-              ['orig/TYPE_ROCK_scripts.inc',
-               '../data/maps/RustboroCity_Gym/scripts.inc'],
+              [['orig/TYPE_ROCK_scripts.inc',
+                '../data/maps/RustboroCity_Gym/scripts.inc']],
           "TYPE_FIGHTING":
-              ['orig/TYPE_FIGHTING_scripts.inc',
-               '../data/maps/DewfordTown_Gym/scripts.inc'],
+              [['orig/TYPE_FIGHTING_scripts.inc',
+                '../data/maps/DewfordTown_Gym/scripts.inc']],
           "TYPE_ELECTRIC":
-              ['orig/TYPE_ELECTRIC_scripts.inc',
-               '../data/maps/MauvilleCity_Gym/scripts.inc'],
+              [['orig/TYPE_ELECTRIC_scripts.inc',
+                '../data/maps/MauvilleCity_Gym/scripts.inc']],
           "TYPE_FIRE":
-              ['orig/TYPE_FIRE_scripts.inc',
-               '../data/maps/LavaridgeTown_Gym_1F/scripts.inc'],
+              [['orig/TYPE_FIRE_scripts.inc',
+                '../data/maps/LavaridgeTown_Gym_1F/scripts.inc']],
           "TYPE_NORMAL":
-              ['orig/TYPE_NORMAL_scripts.inc',
-               '../data/maps/PetalburgCity_Gym/scripts.inc'],
+              [['orig/TYPE_NORMAL_scripts.inc',
+                '../data/maps/PetalburgCity_Gym/scripts.inc']],
           "TYPE_FLYING":
-              ['orig/TYPE_FLYING_scripts.inc',
-               '../data/maps/FortreeCity_Gym/scripts.inc'],
+              [['orig/TYPE_FLYING_scripts.inc',
+                '../data/maps/FortreeCity_Gym/scripts.inc']],
           "TYPE_PSYCHIC":
-              ['orig/TYPE_PSYCHIC_scripts.inc',
-               '../data/maps/MossdeepCity_Gym/scripts.inc'],
+              [['orig/TYPE_PSYCHIC_scripts.inc',
+                '../data/maps/MossdeepCity_Gym/scripts.inc']],
           "TYPE_WATER":
-              ['orig/TYPE_WATER_scripts.inc',
-               '../data/maps/SootopolisCity_Gym_1F/scripts.inc'],
+              [['orig/TYPE_WATER_scripts.inc',
+                '../data/maps/SootopolisCity_Gym_1F/scripts.inc'],
+               ['orig/TYPE_WATER_2_scripts.inc',
+                '../data/maps/EverGrandeCity_ChampionsRoom/scripts.inc']],
           "TYPE_STEEL":  # Steven's gift in Dewford
-              ['orig/TYPE_STEEL_scripts.inc',
-               '../data/maps/GraniteCave_StevensRoom/scripts.inc'],
+              [['orig/TYPE_STEEL_scripts.inc',
+                '../data/maps/GraniteCave_StevensRoom/scripts.inc']],
+          "TYPE_DARK":
+              [['orig/TYPE_DARK_scripts.inc',
+                '../data/maps/EverGrandeCity_SidneysRoom/scripts.inc']],
+          "TYPE_GHOST":
+              [['orig/TYPE_GHOST_scripts.inc',
+                '../data/maps/EverGrandeCity_PhoebesRoom/scripts.inc']],
+          "TYPE_ICE":
+              [['orig/TYPE_ICE_scripts.inc',
+                '../data/maps/EverGrandeCity_GlaciasRoom/scripts.inc']],
+          "TYPE_DRAGON":
+              [['orig/TYPE_DRAGON_scripts.inc',
+                '../data/maps/EverGrandeCity_DrakesRoom/scripts.inc']],
          }
 
 # TM gifts per type.
@@ -297,20 +313,29 @@ def main(args):
     with open(battle_setup_target_fn, 'w') as f_target:
         f_target.write(contents)
 
+    # Replace battle tower 'mon.
+    # For now, this is just Steven's 'mon for the double battle in Mossdeep.
+    with open(battle_tower_orig_fn, 'r') as f_orig:
+        contents = f_orig.read()
+    for steven_mon in ['SPECIES_METANG', 'SPECIES_SKARMORY', 'SPECIES_AGGRON']:
+        contents = contents.replace("%s," % steven_mon, "%s," % mon_map[steven_mon])
+    with open(battle_tower_target_fn, 'w') as f_target:
+        f_target.write(contents)
+
     # Replace gym TM gifts and GymGuideAdvice type advice.
     for tm_type in gym_fn:
         type_str = tm_type.split('_')[1]
-        source_fn, target_fn = gym_fn[tm_type]
-        with open(target_fn, 'w') as f_target:
-            with open(source_fn, 'r') as f_orig:
-                for line in f_orig.readlines():
-                    if "giveitem ITEM_" in line:
-                        f_target.write("   giveitem %s\n" % tm_gifts[type_map[tm_type]])
-                    elif "%s-type" % type_str in line:
-                        f_target.write(line.replace("%s-type" % type_str,
-                                                    "%s-type" % type_map[tm_type].split('_')[1]))
-                    else:
-                        f_target.write(line)
+        for source_fn, target_fn in gym_fn[tm_type]:
+            with open(target_fn, 'w') as f_target:
+                with open(source_fn, 'r') as f_orig:
+                    for line in f_orig.readlines():
+                        if "giveitem ITEM_" in line:
+                            f_target.write("   giveitem %s\n" % tm_gifts[type_map[tm_type]])
+                        elif "%s-type" % type_str in line:
+                            f_target.write(line.replace("%s-type" % type_str,
+                                                        "%s-type" % type_map[tm_type].split('_')[1]))
+                        else:
+                            f_target.write(line)
 
 
 if __name__ == '__main__':
