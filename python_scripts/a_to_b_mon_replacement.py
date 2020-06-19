@@ -278,8 +278,8 @@ def main(args):
         with open(latios_latias_orig_fn, 'r') as f_orig:
             contents = f_orig.read()
         for legendary in ['SPECIES_LATIOS', 'SPECIES_LATIAS']:
-            contents = contents.replace("%s," % legendary,
-                                        "%s_REPLACED," % mon_map[legendary])
+            contents = contents.replace(", %s" % legendary,
+                                        ", %s_REPLACED" % mon_map[legendary])
             contents = contents.replace("_REPLACED", "")
         f_target.write(contents)
     # Replace Lileep/Anorith as a special case (they're in the same file.)
