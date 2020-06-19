@@ -6,3 +6,4 @@ todo:
     - give international dex at the beginning
 - generation changes
     - create second network for evolutions that also predicts the type of evolution, items, etc.
+    - [?] create network to generate icons/front sprite/back sprite potentially

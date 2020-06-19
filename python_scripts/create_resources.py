@@ -35,7 +35,11 @@ def main(args):
                 ps_close = ps[1][ps[1].index(']'):]
                 if ps[0] == "    [" and ps_close == "] =\n":
                     species_mon = "SPECIES_%s" % mon
-                    mon_metadata[species_mon] = {}
+                    mon_metadata[species_mon] = {"species": species_mon,
+                                                 "icon": "../graphics/pokemon/%s/icon.png" % mon.lower()}
+                    # Handle weird sprites.
+                    if species_mon == "SPECIES_UNOWN":
+                        mon_metadata[species_mon]["icon"] = "../graphics/pokemon/unown/a/icon.png"
                     curr_mon = species_mon
             elif curr_mon is not None:
                 if "=" in line:
