@@ -5,6 +5,8 @@ import pandas as pd
 import torch
 
 from sklearn.manifold import TSNE
+import matplotlib as mpl
+mpl.use('Agg')
 import matplotlib.pyplot as plt
 from matplotlib.offsetbox import OffsetImage, AnnotationBbox
 
@@ -28,6 +30,8 @@ class Encoder(torch.nn.Module):
         self.nonlinear1 = torch.nn.Tanh()
         self.linear2 = torch.nn.Linear(2 * hidden_dim, hidden_dim)
         self.nonlinear2 = torch.nn.Tanh()
+        self.vae_linear = [torch.nn.Linear(hidden_dim, hidden_dim),
+                           torch.nn.Linear(hidden_dim, hidden_dim)]
 
     def forward(self, x):
         """
@@ -39,14 +43,17 @@ class Encoder(torch.nn.Module):
         h = self.nonlinear1(h)
         h = self.linear2(h)
         h = self.nonlinear2(h)
+        h_mu = self.vae_linear[0](h)
+        h_std = self.vae_linear[1](h)
 
-        return h
+        return h_mu, h_std
 
 
 class Decoder(torch.nn.Module):
     def __init__(self, hidden_dim, output_dim,
                  n_int_data, n_types, n_abilities,
-                 n_moves, n_tmhm_moves):
+                 n_moves, n_tmhm_moves,
+                 name_len, name_chars):
         """
         In the constructor we instantiate two nn.Linear modules and assign them as
         member variables.
@@ -57,12 +64,12 @@ class Decoder(torch.nn.Module):
         self.linear2 = torch.nn.Linear(2 * hidden_dim, output_dim)
         self.nonlinear2 = torch.nn.Tanh()
 
+        self.name_linear = torch.nn.Linear(hidden_dim, name_len * len(name_chars))
         self.int_data_linear = torch.nn.Linear(hidden_dim, n_int_data)
         self.type_linear = torch.nn.Linear(hidden_dim, n_types)
         self.n_evolutions_linear = torch.nn.Linear(hidden_dim, 3)
         self.ability_linear = torch.nn.Linear(hidden_dim, n_abilities)
         self.levelup_linear = torch.nn.Linear(hidden_dim, n_moves)
-        self.levelup_lvl_linear = torch.nn.Linear(hidden_dim, n_moves)
         self.tmhm_linear = torch.nn.Linear(hidden_dim, n_tmhm_moves)
 
         self.n_int_data = n_int_data
@@ -79,20 +86,20 @@ class Decoder(torch.nn.Module):
         """
 
         # Embedding values transformed by an appropriate layer.
+        y_name = self.name_linear(x)  # project down (goes to softmaxes)
         y_int_data = self.int_data_linear(x)  # project down (use directly for loss)
         y_types = self.type_linear(x)  # project down (goes to softmax+BCE)
-        # y_n_evolutions = self.n_evolutions_linear(x)
+        y_n_evolutions = self.n_evolutions_linear(x)  # project down (goes to softmax)
         y_abilities = self.ability_linear(x)  # project down (goes to softmax+BCE)
         y_moves = self.levelup_linear(x)  # project down (goes to softmax+BCE)
-        y_moves_lvl = self.levelup_lvl_linear(x)  # project down (use directly for loss)
         y_tmhm = self.tmhm_linear(x)  # project down (goes to softmax+BCE)
 
-        return torch.cat((y_int_data,
+        return torch.cat((y_name,
+                          y_int_data,
                           y_types,
-                          # y_n_evolutions,
+                          y_n_evolutions,
                           y_abilities,
                           y_moves,
-                          y_moves_lvl,
                           y_tmhm),
                          1)
 
@@ -100,7 +107,8 @@ class Decoder(torch.nn.Module):
 class Autoencoder(torch.nn.Module):
     def __init__(self, input_dim, hidden_dim, output_dim,
                  n_int_data, n_types, n_abilities,
-                 n_moves, n_tmhm_moves):
+                 n_moves, n_tmhm_moves,
+                 name_len, name_chars):
         """
         In the constructor we instantiate two nn.Linear modules and assign them as
         member variables.
@@ -109,7 +117,9 @@ class Autoencoder(torch.nn.Module):
         self.encoder = Encoder(input_dim, hidden_dim)
         self.decoder = Decoder(hidden_dim, output_dim,
                                n_int_data, n_types, n_abilities,
-                               n_moves, n_tmhm_moves)
+                               n_moves, n_tmhm_moves,
+                               name_len, name_chars)
+        self.hidden_dim = hidden_dim
 
     def forward(self, x):
         """
@@ -117,8 +127,8 @@ class Autoencoder(torch.nn.Module):
         a Tensor of output data. We can use Modules defined in the constructor as
         well as arbitrary operators on Tensors.
         """
-        h_relu = self.encoder(x)
-        y_pred = self.decoder(h_relu)
+        h_mu, h_std = self.encoder(x)
+        y_pred = self.decoder(h_mu + h_std * torch.randn((h_std.shape[0], self.hidden_dim)))
         return y_pred
 
 
@@ -133,23 +143,33 @@ class MaskedMSELoss(torch.nn.Module):
 
 
 class MonReconstructionLoss:
-    def __init__(self, type_list, abilities_list,
-                 move_list, tmhm_move_list):
+    def __init__(self, n_types, n_abilities,
+                 n_moves, n_tmhm_moves,
+                 moves_weights, tmhm_weights,
+                 name_len, name_chars):
+        self.name_loss = [torch.nn.CrossEntropyLoss() for _ in range(name_len)]
         self.int_data_loss = torch.nn.MSELoss()
         self.type_loss = torch.nn.BCEWithLogitsLoss()  # Has sigmoid.
-        # self.n_evolution_loss = torch.nn.CrossEntropyLoss()
+        self.n_evolution_loss = torch.nn.CrossEntropyLoss()
         self.ability_loss = torch.nn.BCEWithLogitsLoss()  # Has sigmoid.
-        self.levelup_move_loss = torch.nn.BCEWithLogitsLoss()  # Has sigmoid.
-        self.levelup_move_lvl_loss = MaskedMSELoss()  # Will be masked.
-        self.tmhm_move_loss = torch.nn.BCEWithLogitsLoss()  # Has sigmoid.
+        self.levelup_move_loss = torch.nn.BCEWithLogitsLoss(pos_weight=moves_weights)  # Has sigmoid.
+        self.tmhm_move_loss = torch.nn.BCEWithLogitsLoss(pos_weight=tmhm_weights)  # Has sigmoid.
 
-        self.type_list = type_list
-        self.abilities_list = abilities_list
-        self.move_list = move_list
-        self.tmhm_move_list = tmhm_move_list
+        self.n_types = n_types
+        self.n_abilities = n_abilities
+        self.n_moves = n_moves
+        self.n_tmhm_moves = n_tmhm_moves
+        self.name_len = name_len
+        self.name_chars = name_chars
 
     def forward(self, input, target, debug=False):
         idx = 0
+
+        # Name loss.
+        name_l = sum([self.name_loss[jdx](input[:, idx + jdx * len(self.name_chars):idx + (jdx + 1) * len(self.name_chars)],
+                                          target[:, idx + jdx * len(self.name_chars):idx + (jdx + 1) * len(self.name_chars)].nonzero()[:, 1])
+                      for jdx in range(self.name_len)])
+        idx += self.name_len * len(self.name_chars)
 
         # Numeric data loss.
         int_data_l = self.int_data_loss(input[:, idx:idx + len(int_data)],
@@ -157,61 +177,64 @@ class MonReconstructionLoss:
         idx += len(int_data)
 
         # Type loss.
-        type_l = self.type_loss(input[:, idx:idx + len(self.type_list)],
-                                target[:, idx:idx + len(self.type_list)])
-        idx += len(self.type_list)
+        type_l = self.type_loss(input[:, idx:idx + self.n_types],
+                                target[:, idx:idx + self.n_types])
+        idx += self.n_types
 
         # N evolutions loss.
-        # n_evolutions_l = self.n_evolution_loss(input[:, idx:idx+3],
-        #                                        target[:, idx:idx+3].nonzero()[:, 1])
-        # idx += 3
+        n_evolutions_l = self.n_evolution_loss(input[:, idx:idx+3],
+                                               target[:, idx:idx+3].nonzero()[:, 1])
+        idx += 3
 
         # Abilities loss.
-        abilities_l = self.ability_loss(input[:, idx:idx + len(self.abilities_list)],
-                                        target[:, idx:idx + len(self.abilities_list)])
-        idx += len(self.abilities_list)
+        abilities_l = self.ability_loss(input[:, idx:idx + self.n_abilities],
+                                        target[:, idx:idx + self.n_abilities])
+        idx += self.n_abilities
 
         # Levelup moveset loss.
-        levelup_move_l = self.levelup_move_loss(input[:, idx:idx + len(self.move_list)],
-                                                target[:, idx:idx + len(self.move_list)])
-        idx += len(self.move_list)
-        lvl_target_output = target[:, idx:idx + len(self.move_list)]
-        t = torch.Tensor([0.0])
-        levelup_move_lvl_l = self.levelup_move_lvl_loss(input[:, idx:idx + len(self.move_list)],
-                                                        lvl_target_output,
-                                                        (lvl_target_output > t).float() * 1)
+        levelup_move_l = self.levelup_move_loss(input[:, idx:idx + self.n_moves],
+                                                target[:, idx:idx + self.n_moves])
+        idx += self.n_moves
 
         # TMHM moveset loss.
-        tmhm_move_l = self.tmhm_move_loss(input[:, idx:idx + len(self.tmhm_move_list)],
-                                          target[:, idx:idx + len(self.tmhm_move_list)])
-        idx += len(self.tmhm_move_list)
+        tmhm_move_l = self.tmhm_move_loss(input[:, idx:idx + self.n_tmhm_moves],
+                                          target[:, idx:idx + self.n_tmhm_moves])
+        idx += self.n_tmhm_moves
 
-        # TODO: add coefficients to reweight this loss function.
         if debug:
+            print("name loss %.5f(%.5f)" % (name_l.item(), name_l.item() / (self.name_len * len(self.name_chars))))
             print("int_data loss %.5f(%.5f)" % (int_data_l.item(), int_data_l.item() / len(int_data)))
-            print("type loss %.5f(%.5f)" % (type_l.item(), type_l.item() / len(self.type_list)))
-            # print("evolution loss %.5f(%.5f)" % (n_evolutions_l.item(), n_evolutions_l.item() / 3.))
-            print("abilities loss %.5f(%.5f)" % (abilities_l.item(), abilities_l.item() / len(self.abilities_list)))
-            print("levelup loss %.5f(%.5f)" % (levelup_move_l.item(), levelup_move_l.item() / len(self.move_list)))
-            print("levelup lvl loss %.5f(%.5f)" % (levelup_move_lvl_l.item(), levelup_move_lvl_l.item() / len(self.move_list)))
-            print("tmhm loss %.5f(%.5f)" % (tmhm_move_l.item(), tmhm_move_l.item() / len(self.tmhm_move_list)))
-        return (int_data_l +
+            print("type loss %.5f(%.5f)" % (type_l.item(), type_l.item() / self.n_types))
+            print("evolution loss %.5f(%.5f)" % (n_evolutions_l.item(), n_evolutions_l.item() / 3.))
+            print("abilities loss %.5f(%.5f)" % (abilities_l.item(), abilities_l.item() / self.n_abilities))
+            print("levelup loss %.5f(%.5f)" % (levelup_move_l.item(), levelup_move_l.item() / self.n_moves))
+            print("tmhm loss %.5f(%.5f)" % (tmhm_move_l.item(), tmhm_move_l.item() / self.n_tmhm_moves))
+        return (name_l +
+                int_data_l +
                 type_l +
-                # n_evolutions_l +
+                n_evolutions_l +
                 abilities_l +
-                levelup_move_l + levelup_move_lvl_l +
+                levelup_move_l +
                 tmhm_move_l)
 
 
 def process_mon_df(df,
                    type_list, abilities_list,
-                   move_list, tmhm_move_list):
+                   move_list, tmhm_move_list,
+                   name_len, name_chars):
     n_abilities = len(abilities_list)
     n_moves = len(move_list)
 
     # Construct input row by row.
     d = []
     for idx in df.index:
+        # Name data.
+        name_d = [0] * len(name_chars) * name_len
+        for jdx in range(len(df["name_chars"][idx])):
+            name_d[jdx * len(name_chars) + name_chars.index(df["name_chars"][idx][jdx])] = 1
+        for jdx in range(len(df["name_chars"][idx]), name_len):
+            name_d[jdx * len(name_chars) + name_chars.index('_')] = 1
+
         # Numeric stats (z score normalized inputs).
         numeric_d = [df[n_d][idx] for n_d in int_data]
 
@@ -221,48 +244,63 @@ def process_mon_df(df,
         type_d[type_list.index(df["type2"][idx])] = 1
 
         # n evolutions.
-        # n_evolutions_d = [0] * 3
-        # n_evolutions_d[df["n_evolutions"][idx]] = 1
+        n_evolutions_d = [0] * 3
+        n_evolutions_d[df["n_evolutions"][idx]] = 1
 
         # Abilities (multi-hot).
         abilities_d = [0] * n_abilities
         for jdx in range(2):
             abilities_d[abilities_list.index(df["abilities"][idx][jdx])] = 1
 
-        # Levelup moveset (2 vectors)
-        # First vec is a multi-hot
-        # Second vec is cont w 0 for never learned or level/100. for level learned.
+        # Levelup moveset (multi-hot).
         levelup_d = [0] * n_moves
-        levelup_lvl_d = [0] * n_moves
         for level, move in df["levelup"][idx]:
             levelup_d[move_list.index(move)] = 1
-            levelup_lvl_d[move_list.index(move)] = level / 100.
 
         # TMHM moveset (multi-hot).
         tmhm_d = [0] * len(tmhm_move_list)
         for jdx in range(len(df["tmhm"][idx])):
             tmhm_d[tmhm_move_list.index(df["tmhm"][idx][jdx])] = 1
 
-        d.append(numeric_d +
+        d.append(name_d +
+                 numeric_d +
                  type_d +
-                 # n_evolutions_d +
+                 n_evolutions_d +
                  abilities_d +
-                 levelup_d + levelup_lvl_d +
+                 levelup_d +
                  tmhm_d)
 
-    return torch.tensor(d)
+    # Turn list of lists to tensor.
+    d = torch.tensor(d)
+
+    # Create pos_weight tensors for moves.
+    idx_start = (name_len * len(name_chars)) + len(int_data) + len(type_list) + n_abilities
+    moves_pos_weight = torch.tensor([sum(1 - d[:, idx_start+idx]) / sum(d[:, idx_start+idx])
+                                     for idx in range(n_moves)])
+    idx_start += n_moves
+    tmhm_pos_weight = torch.tensor([sum(1 - d[:, idx_start + idx]) / sum(d[:, idx_start + idx])
+                                    for idx in range(len(tmhm_move_list))])
+
+    return d, moves_pos_weight, tmhm_pos_weight
 
 
 def print_mon_vec(y, z_mean, z_std,
                   type_list, abilities_list,
-                  move_list, tmhm_move_list):
+                  move_list, tmhm_move_list,
+                  name_len, name_chars):
+    idx = 0
+
+    # Name.
+    print("name\t" + ''.join([name_chars[np.argmax(y[jdx * len(name_chars): (jdx+1) * len(name_chars)])]
+                              for jdx in range(idx, idx+name_len)]))
+    idx += name_len * len(name_chars)
 
     # Numeric stats.
-    for idx in range(len(int_data)):
-        print("%s\t%.0f" % (int_data[idx], int(y[idx] * z_std[idx] + z_mean[idx])))
+    for jdx in range(idx, idx+len(int_data)):
+        print("%s\t%.0f" % (int_data[jdx - idx], int(y[jdx] * z_std[jdx - idx] + z_mean[jdx - idx])))
+    idx = len(int_data)
 
     # Types.
-    idx = len(int_data)
     type_v = list(y[idx:idx + len(type_list)].detach())
     type1_idx = int(np.argmax(type_v))
     type_v[type1_idx] = -float('inf')
@@ -272,15 +310,15 @@ def print_mon_vec(y, z_mean, z_std,
                                   type_list[type2_idx]))
 
     # N evolutions.
-    # n_evolutions = np.argmax(y[idx:idx+3])
-    # idx += 3
-    # print("n evolutions\t%d" % n_evolutions)
+    n_evolutions = np.argmax(y[idx:idx+3])
+    idx += 3
+    print("n evolutions\t%d" % n_evolutions)
 
     # Abilities.
-    ability_v = y[idx:idx + len(abilities_list)]
-    ability1_idx = np.argmax(ability_v)
+    ability_v = list(y[idx:idx + len(abilities_list)].detach())
+    ability1_idx = int(np.argmax(ability_v))
     ability_v[ability1_idx] = -float('inf')
-    ability2_idx = np.argmax(ability_v)
+    ability2_idx = int(np.argmax(ability_v))
     idx += len(abilities_list)
     print("ability1 %s\nability2 %s" % (abilities_list[ability1_idx],
                                         abilities_list[ability2_idx]))
@@ -288,22 +326,22 @@ def print_mon_vec(y, z_mean, z_std,
     # Levelup moveset.
     levels = []
     moves = []
-    for jdx in range(len(move_list)):
-        if y[idx + jdx] > 0.5:
-            levels.append(y[idx + jdx + len(move_list)] * 100)
+    probs = torch.sigmoid(y[idx:idx + len(move_list)]).numpy()
+    idx += len(move_list)
+    for jdx in range(len(probs)):
+        if probs[jdx] >= torch.sigmoid(torch.tensor([1], dtype=torch.float64)).item():
             moves.append(move_list[jdx])
-    idx += len(move_list) * 2
+            levels.append(probs[jdx])  # Just report confidence
     print("levelup moveset:")
-    for jdx in np.argsort(levels):
-        print("\t%.0f\t%s" % (levels[jdx], moves[jdx]))
+    for jdx in np.argsort(levels)[::-1]:  # show in order of confidence
+        print("\t%.2f\t%s" % (levels[jdx], moves[jdx]))
 
     # TMHM moveset.
     print("TMHM moveset:")
-    probs = [y[idx+jdx] / sum(y[idx:idx+len(tmhm_move_list)])
-             for jdx in range(len(tmhm_move_list))]
+    probs = torch.sigmoid(y[idx:idx+len(tmhm_move_list)]).numpy()
     for jdx in np.argsort(probs)[::-1]:
-        if probs[jdx] > 0.5:
-            print("\t%.2f\t%s" % (probs[jdx], tmhm_move_list[jdx]))
+        if probs[jdx] >= torch.sigmoid(torch.tensor([1], dtype=torch.float64)).item():
+            print("\t%.2f\t%s" % (probs[jdx].item(), tmhm_move_list[jdx]))
 
 
 def main(args):
@@ -335,6 +373,16 @@ def main(args):
         z_std[idx] = data_std
     print("... done")
 
+    # Convert names to character lists.
+    print("Reading mon names and converting to character lists")
+    name_len = 0
+    name_chars = list('ABCDEFGHIJKLMNOPQRSTUVWXYZ_')
+    for a in mon_metadata:
+        n = mon_metadata[a]["species"][len('SPECIES_'):]
+        mon_metadata[a]['name_chars'] = [c if c in name_chars else '_' for c in n]
+        name_len = max(name_len, len(mon_metadata[a]['name_chars']))
+    print("... done")
+
     # Augment metadata with evolutions.
     print("Augmenting metadata with evolutions...")
     for a in mon_metadata:
@@ -348,23 +396,44 @@ def main(args):
     # Augment metadata with levelup and tmhm movesets.
     # Note abilities on the way.
     print("Augmenting metadata with levelup and tmhm movesets...")
-    abilities_set = set()
-    moves_set = set()
+    ab_mon = {}
+    mv_mon = {}
     tmhm_moves_set = set()
     for a in mon_metadata:
         for ab in mon_metadata[a]["abilities"]:
-            abilities_set.add(ab)
+            if ab not in ab_mon:
+                ab_mon[ab] = []
+            ab_mon[ab].append(a)
         mon_metadata[a]["levelup"] = []
         for level, move in mon_levelup_moveset[a]:
-            mon_metadata[a]["levelup"].append([level / 100., move])
+            mon_metadata[a]["levelup"].append([level, move])
         for _, move in mon_levelup_moveset[a]:
-            moves_set.add(move)
+            if move not in mv_mon:
+                mv_mon[move] = []
+            mv_mon[move].append(a)
         mon_metadata[a]["tmhm"] = mon_tmhm_moveset[a][:]
         for move in mon_tmhm_moveset[a]:
-            moves_set.add(move)
             tmhm_moves_set.add(move)
-    abilities_list = list(abilities_set)
-    moves_list = list(moves_set)
+
+    # Collapse single-appearance abilities and moves.
+    abilities_list = [ab for ab in ab_mon if len(ab_mon[ab]) > 1] + ["INFREQUENT"]
+    infrequent_abilities = {ab: ab_mon[ab] for ab in ab_mon if len(ab_mon[ab]) == 1}
+    moves_list = [mv for mv in mv_mon if len(mv_mon[mv]) > 1] + ["INFREQUENT"]
+    infrequent_moves = {mv: mv_mon[mv] for mv in mv_mon if len(mv_mon[mv]) == 1}
+    print("infrequent abilities", infrequent_abilities)
+    print("infrequent moves", infrequent_moves)
+    with open("%s.infrequent.json" % args.output_fn, 'w') as f:
+        json.dump({"abilities": infrequent_abilities,
+                   "moves": infrequent_moves}, f)
+    for a in mon_metadata:
+        for idx in range(len(mon_metadata[a]["levelup"])):
+            level, move = mon_metadata[a]["levelup"][idx]
+            if move in infrequent_moves:
+                mon_metadata[a]["levelup"][idx] = [level, "INFREQUENT"]
+        for idx in range(len(mon_metadata[a]["abilities"])):
+            if mon_metadata[a]["abilities"][idx] in infrequent_abilities:
+                mon_metadata[a]["abilities"][idx] = "INFREQUENT"
+
     tmhm_moves_list = list(tmhm_moves_set)
     print("... done")
 
@@ -372,22 +441,28 @@ def main(args):
     df = pd.DataFrame.from_dict(mon_metadata, orient='index')
 
     # Convert mon data into usable inputs.
-    x = process_mon_df(df, type_list, abilities_list, moves_list, tmhm_moves_list)
+    x, moves_pos_weight, tmhm_pos_weight = process_mon_df(df, type_list, abilities_list,
+                                                          moves_list, tmhm_moves_list,
+                                                          name_len, name_chars)
     input_dim = len(x[0])
 
-    # Construct our model by instantiating the class defined above
-    h = 64
+    # Construct our model.
+    h = 128
     print("Input size: %d; embedding dimension: %d" % (input_dim, h))
     model = Autoencoder(input_dim, h, input_dim,
                         len(int_data), len(type_list), len(abilities_list),
-                        len(moves_list), len(tmhm_moves_list))
+                        len(moves_list), len(tmhm_moves_list),
+                        name_len, name_chars)
 
-    # Construct our loss function and an Optimizer. The call to model.parameters()
-    # in the SGD constructor will contain the learnable parameters of the two
-    # nn.Linear modules which are members of the model.
-    criterion = MonReconstructionLoss(type_list, abilities_list, moves_list, tmhm_moves_list)
+    # Construct our loss function and an Optimizer.
+    criterion = MonReconstructionLoss(len(type_list), len(abilities_list),
+                                      len(moves_list), len(tmhm_moves_list),
+                                      moves_pos_weight, tmhm_pos_weight,
+                                      name_len, name_chars)
     optimizer = torch.optim.SGD(model.parameters(), lr=1e-3)
-    epochs = 1000000
+
+    # Train.
+    epochs = 10000
     print_every = int(epochs / 100.)
     mon_every = int(epochs / 10.)
     n_mon_every = 1
@@ -409,15 +484,15 @@ def main(args):
                     criterion.forward(y_pred, x, debug=True)
 
                     # Visualize mon embeddings at this stage.
-                    embs = model.encoder.forward(x)
+                    embs_mu, embs_std = model.encoder.forward(x)
                     if h > 2:
-                        embs_2d = tsne.fit_transform(embs)
+                        embs_2d = tsne.fit_transform(embs_mu)
                     elif h == 2:
-                        embs_2d = embs.detach()
+                        embs_2d = embs_mu.detach()
                     else:  # h == 1
                         embs_2d = np.zeros(shape=(len(mon_list), 2))
-                        embs_2d[:, 0] = embs.detach()[:, 0]
-                        embs_2d[:, 1] = embs.detach()[:, 0]
+                        embs_2d[:, 0] = embs_mu.detach()[:, 0]
+                        embs_2d[:, 1] = embs_mu.detach()[:, 0]
                     fig, ax = plt.subplots(figsize=(10, 10))
                     ax.scatter(embs_2d[:, 0], embs_2d[:, 1], alpha=.1)
                     paths = [df["icon"][midx] for midx in range(len(mon_list))]
@@ -433,20 +508,28 @@ def main(args):
                     print("Sample reconstruction mon:")
                     for _ in range(n_mon_every):
                         midx = np.random.choice(list(range(len(mon_metadata))))
-                        z = model.encoder.forward(x[midx].unsqueeze(0))
-                        print(df["species"][midx], z)
-                        y = model.decoder.forward(z)
+                        print(df["species"][midx], "orig")
+                        print_mon_vec(x[midx], z_mean, z_std,
+                                      type_list, abilities_list,
+                                      moves_list, tmhm_moves_list,
+                                      name_len, name_chars)
+                        print(df["species"][midx], "embedded", embs_mu[midx])
+                        y = model.decoder.forward(embs_mu[midx].unsqueeze(0))
                         print_mon_vec(y[0], z_mean, z_std,
-                                      type_list, abilities_list, moves_list, tmhm_moves_list)
+                                      type_list, abilities_list,
+                                      moves_list, tmhm_moves_list,
+                                      name_len, name_chars)
 
                     # Show sample mon.
                     print("Sample generated mon:")
                     for _ in range(n_mon_every):
-                        z = torch.randn(h).clamp(min=-1, max=1)
+                        z = torch.randn(h)
                         print(z)
                         y = model.decoder.forward(z.unsqueeze(0))
                         print_mon_vec(y[0], z_mean, z_std,
-                                      type_list, abilities_list, moves_list, tmhm_moves_list)
+                                      type_list, abilities_list,
+                                      moves_list, tmhm_moves_list,
+                                      name_len, name_chars)
 
                     # Write trained model to file.
                     torch.save(model.state_dict(), "%s.%d.model" %

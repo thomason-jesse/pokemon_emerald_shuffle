@@ -3,6 +3,8 @@ todo:
 - ROM changes
     - wally zigzagoon
     - birch zigzagoon
+    - [?] Winona bug (in opt)
 - generation changes
     - create second network for evolutions that also predicts the type of evolution, items, etc.
     - [?] create network to generate icons/front sprite/back sprite potentially
+        - look at weird color palette files; could be a less intensive solution

@@ -70,7 +70,10 @@ legendary_fn = {"SPECIES_REGIROCK":
                       '../data/maps/Route119_WeatherInstitute_2F/scripts.inc']],
                 "SPECIES_BELDUM":
                     [['orig/BELDUM_scripts.inc',
-                      '../data/maps/MossdeepCity_StevensHouse/scripts.inc']]
+                      '../data/maps/MossdeepCity_StevensHouse/scripts.inc']],
+                "SPECIES_WYNAUT":
+                    [['orig/WYNAUT_scripts.inc',
+                      '../data/maps/LavaridgeTown/scripts.inc']]
                 }
 # Encounter/gift scripts where multiple species are in the file.
 latios_latias_orig_fn = 'orig/LATIOS_LATIAS_scripts.inc'
@@ -267,10 +270,8 @@ def main(args):
             with open(target_fn, 'w') as f_target:
                 with open(src_fn, 'r') as f_orig:
                     contents = f_orig.read()
-                contents = contents.replace("%s," % legendary,
-                                            "%s_REPLACED," % mon_map[legendary])
-                contents = contents.replace(", %s" % legendary,
-                                            ", %s_REPLACED" % mon_map[legendary])
+                contents = contents.replace("%s" % legendary,
+                                            "%s_REPLACED" % mon_map[legendary])
                 contents = contents.replace("_REPLACED", "")
                 f_target.write(contents)
     # Replace Latios/Latias as a special case (they're in the same file.)
