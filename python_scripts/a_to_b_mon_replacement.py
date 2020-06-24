@@ -15,9 +15,6 @@ battle_setup_target_fn = '../src/battle_setup.c'
 battle_tower_orig_fn = 'orig/battle_tower.c'
 battle_tower_target_fn = '../src/battle_tower.c'
 
-# Parameters
-lvl_increase_for_move_strip = 0.1  # Give a 10% boost to pkm lvl if custom moves were removed.
-
 # Encounter path orig -> target files.
 legendary_fn = {"SPECIES_REGIROCK":
                     [['orig/SPECIES_REGIROCK_scripts.inc',
@@ -215,10 +212,10 @@ def main(args):
                 #    .species = SPECIES_MEDICHAM,
                 curr_mon = line.split('=')[1].strip().strip(',')
 
-            if mon_move_map is None and ".lvl =" in line:
+            if ".lvl =" in line:
                 #    .lvl = 43,
                 lvl_str = line.split("=")[1].strip().strip(',')
-                new_lvl = int(int(lvl_str) * (1 + lvl_increase_for_move_strip) + 0.5)
+                new_lvl = int(int(lvl_str) * (1 + args.lvl_increase) + 0.5)
                 trainer_parties_str += line.replace(" %s," % lvl_str,
                                                     " %s," % str(new_lvl))
 
@@ -343,6 +340,8 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Rewrite wild and trainer mon.')
     parser.add_argument('--input_fn', type=str, required=True,
                         help='the input file with the mon map')
+    parser.add_argument('--lvl_increase', type=float, required=False, default=0,
+                        help='portion to increase trainer mon levels')
     args = parser.parse_args()
 
 

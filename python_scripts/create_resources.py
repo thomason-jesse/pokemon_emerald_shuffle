@@ -36,7 +36,8 @@ def main(args):
                 if ps[0] == "    [" and ps_close == "] =\n":
                     species_mon = "SPECIES_%s" % mon
                     mon_metadata[species_mon] = {"species": species_mon,
-                                                 "icon": "../graphics/pokemon/%s/icon.png" % mon.lower()}
+                                                 "icon": "../graphics/pokemon/%s/icon.png" % mon.lower(),
+                                                 "eggGroups": []}
                     # Handle weird sprites.
                     if species_mon == "SPECIES_UNOWN":
                         mon_metadata[species_mon]["icon"] = "../graphics/pokemon/unown/a/icon.png"
@@ -52,6 +53,8 @@ def main(args):
                     elif data_name == "abilities":
                         mon_metadata[curr_mon][data_name] = [ab.strip()
                                                              for ab in data_str.strip('{}').split(',')]
+                    elif data_name == "eggGroup1" or data_name == "eggGroup2":
+                        mon_metadata[curr_mon]["eggGroups"].append(data_str.strip())
                     else:
                         mon_metadata[curr_mon][data_name] = data_str
                     if data_name == "type1" or data_name == "type2":
