@@ -111,8 +111,8 @@ class Autoencoder(torch.nn.Module):
     def forward(self, x):
 
         h_mu, h_std = self.encoder(x)
-        y_pred = self.decoder(h_mu + h_std * torch.randn((h_std.shape[0], self.hidden_dim)))
-        return y_pred
+        y_pred = self.decoder(h_mu + torch.exp(h_std) * torch.randn((h_std.shape[0], self.hidden_dim)))
+        return y_pred, h_std
 
 
 class MaskedMSELoss(torch.nn.Module):
@@ -126,11 +126,14 @@ class MaskedMSELoss(torch.nn.Module):
 
 
 class MonReconstructionLoss:
-    def __init__(self, n_types, n_abilities,
+    def __init__(self, batch_size, hidden_dim,
+                 n_types, n_abilities,
                  n_moves, n_tmhm_moves,
                  moves_weights, tmhm_weights,
                  name_len, name_chars,
                  n_egg_groups, n_growth_rates, n_gender_ratios):
+
+        # Reconstruction losses.
         # self.name_loss = [torch.nn.CrossEntropyLoss() for _ in range(name_len)]
         self.int_data_loss = torch.nn.MSELoss()
         self.type_loss = torch.nn.BCEWithLogitsLoss()  # Has sigmoid.
@@ -142,6 +145,10 @@ class MonReconstructionLoss:
         self.growth_loss = torch.nn.CrossEntropyLoss()  # Has sigmoid.
         self.gender_loss = torch.nn.CrossEntropyLoss()  # Has sigmoid.
 
+        # Expects log probabilities as input, probabilities as targets.
+        self.kl_loss = torch.nn.KLDivLoss(reduction='batchmean')
+        self.kl_target = torch.ones(batch_size, hidden_dim)
+
         self.n_types = n_types
         self.n_abilities = n_abilities
         self.n_moves = n_moves
@@ -152,7 +159,7 @@ class MonReconstructionLoss:
         self.n_growth_rates = n_growth_rates
         self.n_gender_ratios = n_gender_ratios
 
-    def forward(self, input, target, debug=False):
+    def forward(self, input_emb, input_std, target, debug=False):
         idx = 0
 
         # Name loss.
@@ -162,49 +169,52 @@ class MonReconstructionLoss:
         # idx += self.name_len * len(self.name_chars)
 
         # Numeric data loss.
-        int_data_l = self.int_data_loss(input[:, idx:idx + len(int_data)],
+        int_data_l = self.int_data_loss(input_emb[:, idx:idx + len(int_data)],
                                         target[:, idx:idx + len(int_data)])
         idx += len(int_data)
 
         # Type loss.
-        type_l = self.type_loss(input[:, idx:idx + self.n_types],
+        type_l = self.type_loss(input_emb[:, idx:idx + self.n_types],
                                 target[:, idx:idx + self.n_types])
         idx += self.n_types
 
         # N evolutions loss.
-        n_evolutions_l = self.n_evolution_loss(input[:, idx:idx+3],
+        n_evolutions_l = self.n_evolution_loss(input_emb[:, idx:idx+3],
                                                target[:, idx:idx+3].nonzero()[:, 1])
         idx += 3
 
         # Abilities loss.
-        abilities_l = self.ability_loss(input[:, idx:idx + self.n_abilities],
+        abilities_l = self.ability_loss(input_emb[:, idx:idx + self.n_abilities],
                                         target[:, idx:idx + self.n_abilities])
         idx += self.n_abilities
 
         # Levelup moveset loss.
-        levelup_move_l = self.levelup_move_loss(input[:, idx:idx + self.n_moves],
+        levelup_move_l = self.levelup_move_loss(input_emb[:, idx:idx + self.n_moves],
                                                 target[:, idx:idx + self.n_moves])
         idx += self.n_moves
 
         # TMHM moveset loss.
-        tmhm_move_l = self.tmhm_move_loss(input[:, idx:idx + self.n_tmhm_moves],
+        tmhm_move_l = self.tmhm_move_loss(input_emb[:, idx:idx + self.n_tmhm_moves],
                                           target[:, idx:idx + self.n_tmhm_moves])
         idx += self.n_tmhm_moves
 
         # Egg groups loss.
-        egg_l = self.egg_loss(input[:, idx:idx + self.n_egg_groups],
+        egg_l = self.egg_loss(input_emb[:, idx:idx + self.n_egg_groups],
                               target[:, idx:idx + self.n_egg_groups])
         idx += self.n_egg_groups
 
         # Growth rate loss.
-        growth_l = self.growth_loss(input[:, idx:idx + self.n_growth_rates],
+        growth_l = self.growth_loss(input_emb[:, idx:idx + self.n_growth_rates],
                                     target[:, idx:idx + self.n_growth_rates].nonzero()[:, 1])
         idx += self.n_growth_rates
 
         # Gender ratios loss.
-        gender_l = self.gender_loss(input[:, idx:idx + self.n_gender_ratios],
+        gender_l = self.gender_loss(input_emb[:, idx:idx + self.n_gender_ratios],
                                     target[:, idx:idx + self.n_gender_ratios].nonzero()[:, 1])
         idx += self.n_gender_ratios
+
+        # KL divergence of input std dev with Guassian.
+        kl_l = torch.abs(self.kl_loss(input_std, self.kl_target))
 
         if debug:
             # print("name loss %.5f(%.5f)" % (name_l.item(), name_l.item() / (self.name_len * len(self.name_chars))))
@@ -217,13 +227,18 @@ class MonReconstructionLoss:
             print("egg groups loss %.5f(%.5f)" % (egg_l.item(), egg_l.item() / self.n_egg_groups))
             print("growth rate loss %.5f(%.5f)" % (growth_l.item(), growth_l.item() / self.n_growth_rates))
             print("gender ratio loss %.5f(%.5f)" % (gender_l.item(), gender_l.item() / self.n_gender_ratios))
+            print("kl loss on std %.5f" % kl_l.item())
         return (# name_l +
                 int_data_l +
                 type_l +
                 n_evolutions_l +
                 abilities_l +
                 levelup_move_l +
-                tmhm_move_l)
+                tmhm_move_l +
+                egg_l +
+                growth_l +
+                gender_l +
+                kl_l)
 
 
 def print_mon_vec(y, z_mean, z_std,
@@ -343,7 +358,8 @@ def main(args):
                         len(egg_group_list), len(growth_rates_list), len(gender_ratios_list))
 
     # Construct our loss function and an Optimizer.
-    criterion = MonReconstructionLoss(len(type_list), len(abilities_list),
+    criterion = MonReconstructionLoss(x.shape[0], h,
+                                      len(type_list), len(abilities_list),
                                       len(moves_list), len(tmhm_moves_list),
                                       moves_pos_weight, tmhm_pos_weight,
                                       name_len, name_chars,
@@ -358,10 +374,10 @@ def main(args):
     tsne = TSNE(random_state=1, n_iter=1000, metric="euclidean")  # For visualizing embeddings.
     for t in range(epochs + 1):
         # Forward pass: Compute predicted y by passing x to the model
-        y_pred = model(x)
+        y_pred, h_std_pred = model(x)
 
         # Compute and print loss
-        loss = criterion.forward(y_pred, x)
+        loss = criterion.forward(y_pred, h_std_pred, x)
         if t % print_every == 0:
             print("epoch %d\tloss %.5f" % (t, loss.item()))
 
@@ -370,7 +386,7 @@ def main(args):
                 with torch.no_grad():
                     # Show sample forward pass.
                     print("Forward pass categorical losses:")
-                    criterion.forward(y_pred, x, debug=True)
+                    criterion.forward(y_pred, h_std_pred, x, debug=True)
 
                     # Visualize mon embeddings at this stage.
                     embs_mu, embs_std = model.encoder.forward(x)
