@@ -153,6 +153,8 @@ def main(args):
     ab_mon = {}  # map from abilities to mon who have them
     mv_mon = {}  # map from moves to mon who have them
     eg_mon = {}  # map from egg groups to mon who have them
+    ev_type_mon = {}  # map from evolution types to mon who use them
+    ev_item_mon = {}  # map from evolution items to mon who use them
     growth_rates_list = []
     gender_ratios_list = []
     tmhm_moves_set = set()
@@ -184,6 +186,15 @@ def main(args):
         mon_metadata[a]["tmhm"] = mon_tmhm_moveset[a][:]
         for move in mon_tmhm_moveset[a]:
             tmhm_moves_set.add(move)
+        if a in mon_evolution:
+            for b, t, v in mon_evolution[a]:
+                if t not in ev_type_mon:
+                    ev_type_mon[t] = []
+                ev_type_mon[t].append(b)
+                if t == 'EVO_ITEM':
+                    if v not in ev_item_mon:
+                        ev_item_mon[v] = []
+                    ev_item_mon[v].append(b)
 
     # Collapse single-appearance abilities and moves.
     abilities_list = [ab for ab in ab_mon if len(ab_mon[ab]) > 1] + ["INFREQUENT"]
@@ -191,8 +202,14 @@ def main(args):
     moves_list = [mv for mv in mv_mon if len(mv_mon[mv]) > 1] + ["INFREQUENT"]
     infrequent_moves = {mv: mv_mon[mv] for mv in mv_mon if len(mv_mon[mv]) == 1}
     egg_group_list = [eg for eg in eg_mon]
+    infrequent_ev_types = {t: ev_type_mon[t] for t in ev_type_mon if len(ev_type_mon[t]) == 1}
+    ev_types_list = [t for t in ev_type_mon if len(ev_type_mon[t]) > 1] + ["INFREQUENT"]
+    infrequent_ev_items = {t: ev_item_mon[t] for t in ev_item_mon if len(ev_item_mon[t]) == 1}
+    ev_items_list = [t for t in ev_item_mon if len(ev_item_mon[t]) > 1] + ["INFREQUENT"]
     print("infrequent abilities", infrequent_abilities)
     print("infrequent learned moves", infrequent_moves)
+    print("infrequent evo types", infrequent_ev_types)
+    print("infrequent evo items", infrequent_ev_items)
     for a in mon_metadata:
         for idx in range(len(mon_metadata[a]["levelup"])):
             level, move = mon_metadata[a]["levelup"][idx]
@@ -224,6 +241,10 @@ def main(args):
         d = {"mon_list": mon_list,
              "mon_metadata": mon_metadata,
              "mon_evolution": mon_evolution,
+             "ev_types_list": ev_types_list,
+             "infrequent_ev_types": infrequent_ev_types,
+             "ev_items_list": ev_items_list,
+             "infrequent_ev_items": infrequent_ev_items,
              "z_mean": z_mean,
              "z_std": z_std,
              "input_dim": input_dim,

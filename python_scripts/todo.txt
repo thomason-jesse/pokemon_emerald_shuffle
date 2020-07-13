@@ -5,12 +5,12 @@
     - [?] Winona bug (in opt)
 
 - individual mon
+    - [P1] regularizer on embedding dimensions and/or sample from mean/var of learned embeddings instead of normal
     - [P4] generate icon files from embedding
     - [P4] generate large front / back sprites from icons (trained once)
 
 - evolution network
-    - [P0] take in encoded and produce embedding for decoding of evolution
-    - [P0] also predict evolution type + level + item
+    - [P1] make coherent outputs by tuning various hyperparams
 
 - replacement
     - [P0] generate mon from networks and replace data in ROM files along the way

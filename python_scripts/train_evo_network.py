@@ -73,6 +73,10 @@ def main(args):
         z_mean = d["z_mean"]
         z_std = d["z_std"]
         mon_evolution = d["mon_evolution"]
+        ev_types_list = d["ev_types_list"]
+        infrequent_ev_types = d["infrequent_ev_types"]
+        ev_items_list = d["ev_items_list"]
+        infrequent_ev_items = d["infrequent_ev_items"]
         ae_input_dim = d["input_dim"]
         ae_hidden_dim = d["hidden_dim"]
         int_data = d["int_data"]
@@ -104,16 +108,9 @@ def main(args):
     embs_mu = embs_mu.detach()
     embs_std = embs_std.detach()
 
-    evo_types = []
-    evo_items = ['NONE']
-    for a in mon_evolution:
-        for b, t, v in mon_evolution[a]:
-            if t not in evo_types:
-                evo_types.append(t)
-            if t == 'EVO_ITEM' and v not in evo_items:
-                evo_items.append(v)
-    n_evo_types = len(evo_types)
-    n_evo_items = len(evo_items)
+    ev_items_list.append('NONE')
+    n_evo_types = len(ev_types_list)
+    n_evo_items = len(ev_items_list)
     print("... done; noted %d evo types and %d evo items" % (n_evo_types, n_evo_items))
 
     # Construct our model.
@@ -134,8 +131,13 @@ def main(args):
             for b, t, v in mon_evolution[a]:
                 idx_in.append(idx)
                 idx_out.append(mon_list.index(b))
-                evo_type_out.append(evo_types.index(t))
-                evo_item_out.append(evo_items.index(v) if t == 'EVO_ITEM' else evo_items.index('NONE'))
+                evo_type_out.append(ev_types_list.index(t) if t in ev_types_list
+                                    else ev_types_list.index('INFREQUENT'))
+                if t == 'EVO_ITEM':
+                    evo_item_out.append(ev_items_list.index(v) if v in ev_items_list
+                                        else ev_items_list.index('INFREQUENT'))
+                else:
+                    evo_item_out.append(ev_items_list.index('NONE'))
                 evo_level_out.append(float(v) / 100. if t == 'EVO_LEVEL' else 0.)
     x_emb = torch.zeros((len(idx_in), ae_hidden_dim))
     y_emb = torch.zeros((len(idx_in), ae_hidden_dim))
@@ -144,7 +146,7 @@ def main(args):
     y_level = torch.zeros(len(idx_in))
 
     # Construct our loss function and an Optimizer.
-    criterion = EvoReconstructionLoss(evo_items.index('NONE'))
+    criterion = EvoReconstructionLoss(ev_items_list.index('NONE'))
     optimizer = torch.optim.SGD(model.parameters(), lr=1e-3)
 
     # Train.
@@ -197,8 +199,8 @@ def main(args):
                         y_evo_emb, y_type_pred, y_item_pred, y_level_pred = model.forward(embs_mu[midx].unsqueeze(0))
                         y_evo_base = autoencoder_model.decoder.forward(y_evo_emb)
                         print("Evo type: %s\nEvo item: %s\nEvo level: %.0f" %
-                              (evo_types[int(np.argmax(y_type_pred.detach()))],
-                               evo_items[int(np.argmax(y_item_pred.detach()))],
+                              (ev_types_list[int(np.argmax(y_type_pred.detach()))],
+                               ev_items_list[int(np.argmax(y_item_pred.detach()))],
                                y_level_pred[0].item() * 100))
                         print_mon_vec(y_evo_base[0], z_mean, z_std,
                                       type_list, abilities_list,
