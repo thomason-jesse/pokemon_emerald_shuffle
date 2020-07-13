@@ -71,15 +71,19 @@ def main(args):
                 #     [SPECIES_BULBASAUR]  = {{EVO_LEVEL, 16, SPECIES_IVYSAUR}},\n
                 ps = line.split("=")
                 species_a = ps[0].strip().strip('[]')
+                evo_type = ps[1].split(',')[0].strip().strip('{}')
+                evo_val = ps[1].split(',')[1].strip().strip('{}')
                 species_b = ps[1].split(',')[2].strip().strip('{}')
                 curr_mon = species_a
                 if species_a not in mon_evolution:
                     mon_evolution[species_a] = []
-                mon_evolution[species_a].append(species_b)
+                mon_evolution[species_a].append((species_b, evo_type, evo_val))
             else:
                 #                             {EVO_ITEM, ITEM_SUN_STONE, SPECIES_BELLOSSOM}},
+                evo_type = line.strip().split(',')[0].strip().strip('{}')
+                evo_val = line.strip().split(',')[1].strip().strip('{}')
                 species_b = line.strip().split(',')[2].strip().strip('{}')
-                mon_evolution[curr_mon].append(species_b)
+                mon_evolution[curr_mon].append((species_b, evo_type, evo_val))
     print("Read in %d mon evolutions" % len(mon_evolution))
 
     # Read in level up and TMHM learnsets.

@@ -1,16 +1,17 @@
-todo:
 
 - ROM changes
     - wally zigzagoon
     - birch zigzagoon
     - [?] Winona bug (in opt)
 
-- generation changes
+- individual mon
+    - [P4] generate icon files from embedding
+    - [P4] generate large front / back sprites from icons (trained once)
 
-    - create second network on top of fixed encoder for evolution
-        - take in encoded and produce embedding for decoding of evolution
-        - also predict evolution type + level + item
+- evolution network
+    - [P0] take in encoded and produce embedding for decoding of evolution
+    - [P0] also predict evolution type + level + item
 
-
-    - [?] create network to generate icons/front sprite/back sprite potentially
-        - look at weird color palette files; could be a less intensive solution
+- replacement
+    - [P0] generate mon from networks and replace data in ROM files along the way
+    - [P1] create mon maps from original mon to generated mon to get coherent game mapping
