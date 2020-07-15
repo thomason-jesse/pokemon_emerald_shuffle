@@ -17,9 +17,14 @@ int_data = ['baseHP', 'baseAttack', 'baseDefense', 'baseSpeed', 'baseSpAttack',
             'eggCycles', 'friendship']  # don't actually care about predicting 'safariZoneFleeRate'
 
 
-class Encoder(torch.nn.Module):
-    def __init__(self, input_dim, hidden_dim):
-        super(Encoder, self).__init__()
+class Autoencoder(torch.nn.Module):
+    def __init__(self, input_dim, hidden_dim,
+                 n_int_data, n_types, n_abilities,
+                 n_moves, n_tmhm_moves,
+                 n_egg_groups, n_growth_rates, n_gender_ratios):
+        super(Autoencoder, self).__init__()
+
+        # Encoder layers.
         self.linear1 = torch.nn.Linear(input_dim, 2 * hidden_dim)
         self.nonlinear1 = torch.nn.Tanh()
         self.linear2 = torch.nn.Linear(2 * hidden_dim, hidden_dim)
@@ -27,26 +32,7 @@ class Encoder(torch.nn.Module):
         self.vae_linear = [torch.nn.Linear(hidden_dim, hidden_dim),
                            torch.nn.Linear(hidden_dim, hidden_dim)]
 
-    def forward(self, x):
-        h = self.linear1(x)
-        h = self.nonlinear1(h)
-        h = self.linear2(h)
-        h = self.nonlinear2(h)
-        h_mu = self.vae_linear[0](h)
-        h_std = self.vae_linear[1](h)
-
-        return h_mu, h_std
-
-
-class Decoder(torch.nn.Module):
-    def __init__(self, hidden_dim, output_dim,
-                 n_int_data, n_types, n_abilities,
-                 n_moves, n_tmhm_moves,
-                 name_len, name_chars,
-                 n_egg_groups, n_growth_rates, n_gender_ratios):
-        super(Decoder, self).__init__()
-
-        self.name_linear = torch.nn.Linear(hidden_dim, name_len * len(name_chars))
+        # Decoder layers.
         self.int_data_linear = torch.nn.Linear(hidden_dim, n_int_data)
         self.type_linear = torch.nn.Linear(hidden_dim, n_types)
         self.n_evolutions_linear = torch.nn.Linear(hidden_dim, 3)
@@ -57,6 +43,8 @@ class Decoder(torch.nn.Module):
         self.growth_linear = torch.nn.Linear(hidden_dim, n_growth_rates)
         self.gender_linear = torch.nn.Linear(hidden_dim, n_gender_ratios)
 
+        # Params to remember.
+        self.hidden_dim = hidden_dim
         self.n_int_data = n_int_data
         self.n_types = n_types
         self.n_abilities = n_abilities
@@ -66,9 +54,18 @@ class Decoder(torch.nn.Module):
         self.n_growth_rates = n_growth_rates
         self.n_gender_ratios = n_gender_ratios
 
-    def forward(self, x):
+    def encode(self, x):
+        h = self.linear1(x)
+        h = self.nonlinear1(h)
+        h = self.linear2(h)
+        h = self.nonlinear2(h)
+        h_mu = self.vae_linear[0](h)
+        h_std = self.vae_linear[1](h)
+
+        return h_mu, h_std
+
+    def decode(self, x):
         # Embedding values transformed by an appropriate layer.
-        # y_name = self.name_linear(x)  # project down (goes to softmaxes)
         y_int_data = self.int_data_linear(x)  # project down (use directly for MSE loss)
         y_types = self.type_linear(x)  # project down (goes to softmax+BCE)
         y_n_evolutions = self.n_evolutions_linear(x)  # project down (goes to softmax+CE)
@@ -79,8 +76,7 @@ class Decoder(torch.nn.Module):
         y_growth = self.growth_linear(x)  # project down (goes to softmax+CE)
         y_gender = self.gender_linear(x)  # project down (goes to softmax+CE)
 
-        return torch.cat((# y_name,
-                          y_int_data,
+        return torch.cat((y_int_data,
                           y_types,
                           y_n_evolutions,
                           y_abilities,
@@ -91,27 +87,9 @@ class Decoder(torch.nn.Module):
                           y_gender),
                          1)
 
-
-class Autoencoder(torch.nn.Module):
-    def __init__(self, input_dim, hidden_dim, output_dim,
-                 n_int_data, n_types, n_abilities,
-                 n_moves, n_tmhm_moves,
-                 name_len, name_chars,
-                 n_egg_groups, n_growth_rates, n_gender_ratios):
-
-        super(Autoencoder, self).__init__()
-        self.encoder = Encoder(input_dim, hidden_dim)
-        self.decoder = Decoder(hidden_dim, output_dim,
-                               n_int_data, n_types, n_abilities,
-                               n_moves, n_tmhm_moves,
-                               name_len, name_chars,
-                               n_egg_groups, n_growth_rates, n_gender_ratios)
-        self.hidden_dim = hidden_dim
-
     def forward(self, x):
-
-        h_mu, h_std = self.encoder(x)
-        y_pred = self.decoder(h_mu + torch.exp(h_std) * torch.randn((h_std.shape[0], self.hidden_dim)))
+        h_mu, h_std = self.encode(x)
+        y_pred = self.decode(h_mu + torch.exp(h_std) * torch.randn((h_std.shape[0], self.hidden_dim)))
         return y_pred, h_std
 
 
@@ -130,11 +108,9 @@ class MonReconstructionLoss:
                  n_types, n_abilities,
                  n_moves, n_tmhm_moves,
                  moves_weights, tmhm_weights,
-                 name_len, name_chars,
                  n_egg_groups, n_growth_rates, n_gender_ratios):
 
         # Reconstruction losses.
-        # self.name_loss = [torch.nn.CrossEntropyLoss() for _ in range(name_len)]
         self.int_data_loss = torch.nn.MSELoss()
         self.type_loss = torch.nn.BCEWithLogitsLoss()  # Has sigmoid.
         self.n_evolution_loss = torch.nn.CrossEntropyLoss()  # Has sigmoid.
@@ -153,20 +129,12 @@ class MonReconstructionLoss:
         self.n_abilities = n_abilities
         self.n_moves = n_moves
         self.n_tmhm_moves = n_tmhm_moves
-        self.name_len = name_len
-        self.name_chars = name_chars
         self.n_egg_groups = n_egg_groups
         self.n_growth_rates = n_growth_rates
         self.n_gender_ratios = n_gender_ratios
 
     def forward(self, input_emb, input_std, target, debug=False):
         idx = 0
-
-        # Name loss.
-        # name_l = sum([self.name_loss[jdx](input[:, idx + jdx * len(self.name_chars):idx + (jdx + 1) * len(self.name_chars)],
-        #                                   target[:, idx + jdx * len(self.name_chars):idx + (jdx + 1) * len(self.name_chars)].nonzero()[:, 1])
-        #               for jdx in range(self.name_len)])
-        # idx += self.name_len * len(self.name_chars)
 
         # Numeric data loss.
         int_data_l = self.int_data_loss(input_emb[:, idx:idx + len(int_data)],
@@ -217,7 +185,6 @@ class MonReconstructionLoss:
         kl_l = torch.abs(self.kl_loss(input_std, self.kl_target))
 
         if debug:
-            # print("name loss %.5f(%.5f)" % (name_l.item(), name_l.item() / (self.name_len * len(self.name_chars))))
             print("int_data loss %.5f(%.5f)" % (int_data_l.item(), int_data_l.item() / len(int_data)))
             print("type loss %.5f(%.5f)" % (type_l.item(), type_l.item() / self.n_types))
             print("evolution loss %.5f(%.5f)" % (n_evolutions_l.item(), n_evolutions_l.item() / 3.))
@@ -228,8 +195,7 @@ class MonReconstructionLoss:
             print("growth rate loss %.5f(%.5f)" % (growth_l.item(), growth_l.item() / self.n_growth_rates))
             print("gender ratio loss %.5f(%.5f)" % (gender_l.item(), gender_l.item() / self.n_gender_ratios))
             print("kl loss on std %.5f" % kl_l.item())
-        return (# name_l +
-                int_data_l +
+        return (int_data_l +
                 type_l +
                 n_evolutions_l +
                 abilities_l +
@@ -244,14 +210,8 @@ class MonReconstructionLoss:
 def print_mon_vec(y, z_mean, z_std,
                   type_list, abilities_list,
                   move_list, tmhm_move_list,
-                  name_len, name_chars,
                   egg_groups_list, growth_rates_list, gender_ratios_list):
     idx = 0
-
-    # Name.
-    # print("name\t" + ''.join([name_chars[np.argmax(y[jdx * len(name_chars): (jdx+1) * len(name_chars)])]
-    #                           for jdx in range(idx, idx+name_len)]))
-    # idx += name_len * len(name_chars)
 
     # Numeric stats.
     for jdx in range(idx, idx+len(int_data)):
@@ -338,8 +298,6 @@ def main(args):
         abilities_list = d["abilities_list"]
         moves_list = d["moves_list"]
         tmhm_moves_list = d["tmhm_moves_list"]
-        name_len = d["name_len"]
-        name_chars = d["name_chars"]
         egg_group_list = d["egg_group_list"]
         growth_rates_list = d["growth_rates_list"]
         gender_ratios_list = d["gender_ratios_list"]
@@ -351,10 +309,9 @@ def main(args):
 
     # Construct our model.
     print("Input size: %d; embedding dimension: %d" % (input_dim, h))
-    model = Autoencoder(input_dim, h, input_dim,
+    model = Autoencoder(input_dim, h,
                         len(int_data), len(type_list), len(abilities_list),
                         len(moves_list), len(tmhm_moves_list),
-                        name_len, name_chars,
                         len(egg_group_list), len(growth_rates_list), len(gender_ratios_list))
 
     # Construct our loss function and an Optimizer.
@@ -362,9 +319,14 @@ def main(args):
                                       len(type_list), len(abilities_list),
                                       len(moves_list), len(tmhm_moves_list),
                                       moves_pos_weight, tmhm_pos_weight,
-                                      name_len, name_chars,
                                       len(egg_group_list), len(growth_rates_list), len(gender_ratios_list))
-    optimizer = torch.optim.SGD(model.parameters(), lr=1e-3)
+    optimizer = torch.optim.SGD(model.parameters(), lr=1e-4)
+
+    if args.input_model_pref:
+        print("Loading initial model and optimizer weights from prefix '%s'..." % args.input_model_pref)
+        model.load_state_dict(torch.load("%s.model" % args.input_model_pref))
+        optimizer.load_state_dict(torch.load("%s.opt" % args.input_model_pref))
+        print("... done")
 
     # Train.
     epochs = 10000
@@ -372,6 +334,7 @@ def main(args):
     mon_every = int(epochs / 10.)
     n_mon_every = 1
     tsne = TSNE(random_state=1, n_iter=1000, metric="euclidean")  # For visualizing embeddings.
+    least_loss = None
     for t in range(epochs + 1):
         # Forward pass: Compute predicted y by passing x to the model
         y_pred, h_std_pred = model(x)
@@ -389,7 +352,7 @@ def main(args):
                     criterion.forward(y_pred, h_std_pred, x, debug=True)
 
                     # Visualize mon embeddings at this stage.
-                    embs_mu, embs_std = model.encoder.forward(x)
+                    embs_mu, embs_std = model.encode(x)
                     if h > 2:
                         embs_2d = tsne.fit_transform(embs_mu)
                     elif h == 2:
@@ -418,15 +381,13 @@ def main(args):
                         print_mon_vec(x[midx], z_mean, z_std,
                                       type_list, abilities_list,
                                       moves_list, tmhm_moves_list,
-                                      name_len, name_chars,
                                       egg_group_list, growth_rates_list, gender_ratios_list)
                         print("----------")
                         print(df["species"][midx], "embedded", embs_mu[midx])
-                        y = model.decoder.forward(embs_mu[midx].unsqueeze(0))
+                        y = model.decode(embs_mu[midx].unsqueeze(0))
                         print_mon_vec(y[0], z_mean, z_std,
                                       type_list, abilities_list,
                                       moves_list, tmhm_moves_list,
-                                      name_len, name_chars,
                                       egg_group_list, growth_rates_list, gender_ratios_list)
                         print("----------")
 
@@ -436,17 +397,22 @@ def main(args):
                         z = torch.randn(h)
                         print("----------")
                         print("random embedding", z)
-                        y = model.decoder.forward(z.unsqueeze(0))
+                        y = model.decode(z.unsqueeze(0))
                         print_mon_vec(y[0], z_mean, z_std,
                                       type_list, abilities_list,
                                       moves_list, tmhm_moves_list,
-                                      name_len, name_chars,
                                       egg_group_list, growth_rates_list, gender_ratios_list)
                         print("----------")
 
-                    # Write trained model to file.
-                    torch.save(model.state_dict(), "%s.%d.model" %
-                               (args.output_fn, t))
+        # If this is the least loss achieved, write file.
+        if least_loss is None or loss < least_loss:
+            least_loss = loss.detach().item()
+            if args.verbose:
+                print("... wrote least loss model with l=%.5f at epoch %d" % (least_loss, t))  # verbose
+            torch.save(model.state_dict(), "%s.best.model" % args.output_fn)
+            torch.save(optimizer.state_dict(), "%s.best.opt" % args.output_fn)
+            for name, param in model.state_dict().items():  # DEBUG
+                print(name, param)  # DEBUG
 
         # Zero gradients, perform a backward pass, and update the weights.
         optimizer.zero_grad()
@@ -460,7 +426,10 @@ if __name__ == '__main__':
                         help='the input file for the mon metadata')
     parser.add_argument('--output_fn', type=str, required=True,
                         help='the output file for the trained generator network')
+    parser.add_argument('--input_model_pref', type=str,
+                        help='input model/optimizer weights prefix to continue training')
+    parser.add_argument('--verbose', dest='verbose', action='store_true',
+                        help='whether ')
     args = parser.parse_args()
-
 
     main(args)
