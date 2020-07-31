@@ -11,17 +11,17 @@ int_data = ['baseHP', 'baseAttack', 'baseDefense', 'baseSpeed', 'baseSpAttack',
             'eggCycles', 'friendship']  # don't actually care about predicting 'safariZoneFleeRate'
 
 
-def process_mon_df(df,
-                   type_list, abilities_list,
-                   move_list, tmhm_move_list,
-                   name_len, name_chars,
-                   egg_groups_list, growth_rates_list, gender_ratios_list):
+def process_mon(mon_metadata, mon_list,
+                type_list, abilities_list,
+                move_list, tmhm_move_list,
+                egg_groups_list, growth_rates_list, gender_ratios_list):
     n_abilities = len(abilities_list)
     n_moves = len(move_list)
 
     # Construct input row by row.
     d = []
-    for idx in df.index:
+    for idx in range(len(mon_list)):
+        m = mon_metadata[mon_list[idx]]
         # Name data.
         # name_d = [0] * len(name_chars) * name_len
         # for jdx in range(len(df["name_chars"][idx])):
@@ -30,47 +30,46 @@ def process_mon_df(df,
         #     name_d[jdx * len(name_chars) + name_chars.index('_')] = 1
 
         # Numeric stats (z score normalized inputs).
-        numeric_d = [df[n_d][idx] for n_d in int_data]
+        numeric_d = [m[n_d] for n_d in int_data]
 
         # Types (multi-hot).
         type_d = [0] * len(type_list)
         for jdx in range(2):
-            type_d[type_list.index(df["type%d" % (jdx + 1)][idx])] = 1
+            type_d[type_list.index(m["type%d" % (jdx + 1)])] = 1
 
         # n evolutions (one-hot).
         n_evolutions_d = [0] * 3
-        n_evolutions_d[df["n_evolutions"][idx]] = 1
+        n_evolutions_d[m["n_evolutions"]] = 1
 
         # Abilities (multi-hot).
         abilities_d = [0] * n_abilities
         for jdx in range(2):
-            abilities_d[abilities_list.index(df["abilities"][idx][jdx])] = 1
+            abilities_d[abilities_list.index(m["abilities"][jdx])] = 1
 
         # Levelup moveset (multi-hot).
         levelup_d = [0] * n_moves
-        for level, move in df["levelup"][idx]:
+        for level, move in m["levelup"]:
             levelup_d[move_list.index(move)] = 1
 
         # TMHM moveset (multi-hot).
         tmhm_d = [0] * len(tmhm_move_list)
-        for jdx in range(len(df["tmhm"][idx])):
-            tmhm_d[tmhm_move_list.index(df["tmhm"][idx][jdx])] = 1
+        for jdx in range(len(m["tmhm"])):
+            tmhm_d[tmhm_move_list.index(m["tmhm"][jdx])] = 1
 
         # Egg groups (multi-hot).
         egg_d = [0] * len(egg_groups_list)
         for jdx in range(2):
-            egg_d[egg_groups_list.index(df["eggGroups"][idx][jdx])] = 1
+            egg_d[egg_groups_list.index(m["eggGroups"][jdx])] = 1
 
         # Growth rate (one-hot).
         growth_d = [0] * len(growth_rates_list)
-        growth_d[growth_rates_list.index(df["growthRate"][idx])] = 1
+        growth_d[growth_rates_list.index(m["growthRate"])] = 1
 
         # Gender ratio (one-hot).
         gender_d = [0] * len(gender_ratios_list)
-        gender_d[gender_ratios_list.index(df["genderRatio"][idx])] = 1
+        gender_d[gender_ratios_list.index(m["genderRatio"])] = 1
 
-        d.append(# name_d +
-                 numeric_d +
+        d.append(numeric_d +
                  type_d +
                  n_evolutions_d +
                  abilities_d +
@@ -88,7 +87,6 @@ def process_mon_df(df,
                 len(type_list) + \
                 3 + \
                 n_abilities
-                # + (name_len * len(name_chars))
     moves_pos_weight = torch.tensor([sum(1 - d[:, idx_start+idx]) / sum(d[:, idx_start+idx])
                                      for idx in range(n_moves)])
     idx_start += n_moves
@@ -222,14 +220,11 @@ def main(args):
     tmhm_moves_list = list(tmhm_moves_set)
     print("... done")
 
-    # Create little encoder decoder layers for type and stats.
-    df = pd.DataFrame.from_dict(mon_metadata, orient='index')
-
     # Convert mon data into usable inputs.
-    x, moves_pos_weight, tmhm_pos_weight = process_mon_df(df, type_list, abilities_list,
-                                                          moves_list, tmhm_moves_list,
-                                                          name_len, name_chars,
-                                                          egg_group_list, growth_rates_list, gender_ratios_list)
+    x, moves_pos_weight, tmhm_pos_weight = process_mon(mon_metadata, mon_list,
+                                                       type_list, abilities_list,
+                                                       moves_list, tmhm_moves_list,
+                                                       egg_group_list, growth_rates_list, gender_ratios_list)
     input_dim = len(x[0])
 
     # Hidden dimension.

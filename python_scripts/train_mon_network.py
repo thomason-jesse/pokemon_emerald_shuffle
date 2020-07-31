@@ -10,38 +10,59 @@ mpl.use('Agg')
 import matplotlib.pyplot as plt
 from matplotlib.offsetbox import OffsetImage, AnnotationBbox
 
+torch.manual_seed(0)
+
 # Metadata consts.
 int_data = ['baseHP', 'baseAttack', 'baseDefense', 'baseSpeed', 'baseSpAttack',
             'baseSpDefense', 'catchRate', 'expYield', 'evYield_HP', 'evYield_Attack',
             'evYield_Defense', 'evYield_Speed', 'evYield_SpAttack', 'evYield_SpDefense',
             'eggCycles', 'friendship']  # don't actually care about predicting 'safariZoneFleeRate'
 
+# Training loss weights.
+# Learn these first
+int_data_w = np.power(2, 3)  # learn these first
+type_w = np.power(2, 3)
+n_evolutions_w = np.power(2, 3)
+# Learn these second
+abilities_w = np.power(2, 2)
+growth_w = np.power(2, 2)
+# Learn these third.
+levelup_move_w = np.power(2, 1)
+tmhm_move_w = np.power(2, 1)
+# Learn these last.
+egg_w = 1
+gender_w = 1
+
+# Increase KL weight to get more Guassian-looking clusters if overfitting; decrease to more tightly fit training data.
+kl_w = 1
+
 
 class Autoencoder(torch.nn.Module):
     def __init__(self, input_dim, hidden_dim,
                  n_int_data, n_types, n_abilities,
                  n_moves, n_tmhm_moves,
-                 n_egg_groups, n_growth_rates, n_gender_ratios):
+                 n_egg_groups, n_growth_rates, n_gender_ratios,
+                 device):
         super(Autoencoder, self).__init__()
 
         # Encoder layers.
-        self.linear1 = torch.nn.Linear(input_dim, 2 * hidden_dim)
+        self.linear1 = torch.nn.Linear(input_dim, 2 * hidden_dim).to(device)
         self.nonlinear1 = torch.nn.Tanh()
-        self.linear2 = torch.nn.Linear(2 * hidden_dim, hidden_dim)
+        self.linear2 = torch.nn.Linear(2 * hidden_dim, hidden_dim).to(device)
         self.nonlinear2 = torch.nn.Tanh()
-        self.vae_linear = [torch.nn.Linear(hidden_dim, hidden_dim),
-                           torch.nn.Linear(hidden_dim, hidden_dim)]
+        self.vae_linear = [torch.nn.Linear(hidden_dim, hidden_dim).to(device),
+                           torch.nn.Linear(hidden_dim, hidden_dim).to(device)]
 
         # Decoder layers.
-        self.int_data_linear = torch.nn.Linear(hidden_dim, n_int_data)
-        self.type_linear = torch.nn.Linear(hidden_dim, n_types)
-        self.n_evolutions_linear = torch.nn.Linear(hidden_dim, 3)
-        self.ability_linear = torch.nn.Linear(hidden_dim, n_abilities)
-        self.levelup_linear = torch.nn.Linear(hidden_dim, n_moves)
-        self.tmhm_linear = torch.nn.Linear(hidden_dim, n_tmhm_moves)
-        self.egg_linear = torch.nn.Linear(hidden_dim, n_egg_groups)
-        self.growth_linear = torch.nn.Linear(hidden_dim, n_growth_rates)
-        self.gender_linear = torch.nn.Linear(hidden_dim, n_gender_ratios)
+        self.int_data_linear = torch.nn.Linear(hidden_dim, n_int_data).to(device)
+        self.type_linear = torch.nn.Linear(hidden_dim, n_types).to(device)
+        self.n_evolutions_linear = torch.nn.Linear(hidden_dim, 3).to(device)
+        self.ability_linear = torch.nn.Linear(hidden_dim, n_abilities).to(device)
+        self.levelup_linear = torch.nn.Linear(hidden_dim, n_moves).to(device)
+        self.tmhm_linear = torch.nn.Linear(hidden_dim, n_tmhm_moves).to(device)
+        self.egg_linear = torch.nn.Linear(hidden_dim, n_egg_groups).to(device)
+        self.growth_linear = torch.nn.Linear(hidden_dim, n_growth_rates).to(device)
+        self.gender_linear = torch.nn.Linear(hidden_dim, n_gender_ratios).to(device)
 
         # Params to remember.
         self.hidden_dim = hidden_dim
@@ -89,7 +110,11 @@ class Autoencoder(torch.nn.Module):
 
     def forward(self, x):
         h_mu, h_std = self.encode(x)
-        y_pred = self.decode(h_mu + torch.exp(h_std) * torch.randn((h_std.shape[0], self.hidden_dim)))
+        if self.training:
+            std_coeff = torch.rand_like(h_std)
+        else:
+            std_coeff = torch.ones_like(h_std)
+        y_pred = self.decode(h_mu + torch.exp(h_std) * std_coeff)
         return y_pred, h_std
 
 
@@ -108,7 +133,8 @@ class MonReconstructionLoss:
                  n_types, n_abilities,
                  n_moves, n_tmhm_moves,
                  moves_weights, tmhm_weights,
-                 n_egg_groups, n_growth_rates, n_gender_ratios):
+                 n_egg_groups, n_growth_rates, n_gender_ratios,
+                 device):
 
         # Reconstruction losses.
         self.int_data_loss = torch.nn.MSELoss()
@@ -123,7 +149,7 @@ class MonReconstructionLoss:
 
         # Expects log probabilities as input, probabilities as targets.
         self.kl_loss = torch.nn.KLDivLoss(reduction='batchmean')
-        self.kl_target = torch.ones(batch_size, hidden_dim)
+        self.kl_target = torch.ones(batch_size, hidden_dim).to(device)
 
         self.n_types = n_types
         self.n_abilities = n_abilities
@@ -185,26 +211,26 @@ class MonReconstructionLoss:
         kl_l = torch.abs(self.kl_loss(input_std, self.kl_target))
 
         if debug:
-            print("int_data loss %.5f(%.5f)" % (int_data_l.item(), int_data_l.item() / len(int_data)))
-            print("type loss %.5f(%.5f)" % (type_l.item(), type_l.item() / self.n_types))
-            print("evolution loss %.5f(%.5f)" % (n_evolutions_l.item(), n_evolutions_l.item() / 3.))
-            print("abilities loss %.5f(%.5f)" % (abilities_l.item(), abilities_l.item() / self.n_abilities))
-            print("levelup loss %.5f(%.5f)" % (levelup_move_l.item(), levelup_move_l.item() / self.n_moves))
-            print("tmhm loss %.5f(%.5f)" % (tmhm_move_l.item(), tmhm_move_l.item() / self.n_tmhm_moves))
-            print("egg groups loss %.5f(%.5f)" % (egg_l.item(), egg_l.item() / self.n_egg_groups))
-            print("growth rate loss %.5f(%.5f)" % (growth_l.item(), growth_l.item() / self.n_growth_rates))
-            print("gender ratio loss %.5f(%.5f)" % (gender_l.item(), gender_l.item() / self.n_gender_ratios))
-            print("kl loss on std %.5f" % kl_l.item())
-        return (int_data_l +
-                type_l +
-                n_evolutions_l +
-                abilities_l +
-                levelup_move_l +
-                tmhm_move_l +
-                egg_l +
-                growth_l +
-                gender_l +
-                kl_l)
+            print("int_data loss\t%.5f\t(%.5f)" % (int_data_l.item(), int_data_w * int_data_l.item()))
+            print("type loss\t%.5f\t(%.5f)" % (type_l.item(), type_w * type_l.item()))
+            print("evolution loss\t%.5f\t(%.5f)" % (n_evolutions_l.item(), n_evolutions_w * n_evolutions_l.item()))
+            print("abilities loss\t%.5f\t(%.5f)" % (abilities_l.item(), abilities_w * abilities_l.item()))
+            print("levelup loss\t%.5f\t(%.5f)" % (levelup_move_l.item(), levelup_move_w * levelup_move_l.item()))
+            print("tmhm loss\t%.5f\t(%.5f)" % (tmhm_move_l.item(), tmhm_move_w * tmhm_move_l.item()))
+            print("egg groups loss\t%.5f\t(%.5f)" % (egg_l.item(), egg_w * egg_l.item()))
+            print("growth rate loss\t%.5f\t(%.5f)" % (growth_l.item(), growth_w * growth_l.item()))
+            print("gender ratio loss\t%.5f\t(%.5f)" % (gender_l.item(), gender_w * gender_l.item()))
+            print("kl loss on std\t%.5f\t(%.5f)" % (kl_l.item(), kl_w * kl_l.item()))
+        return (int_data_w * int_data_l +
+                type_w * type_l +
+                n_evolutions_w * n_evolutions_l +
+                abilities_w * abilities_l +
+                levelup_move_w * levelup_move_l +
+                tmhm_move_w * tmhm_move_l +
+                egg_w * egg_l +
+                growth_w * growth_l +
+                gender_w * gender_l +
+                kl_w * kl_l)
 
 
 def print_mon_vec(y, z_mean, z_std,
@@ -251,16 +277,16 @@ def print_mon_vec(y, z_mean, z_std,
             moves.append(move_list[jdx])
             levels.append(probs[jdx])  # Just report confidence
     print("levelup moveset:")
-    for jdx in np.argsort(levels)[::-1]:  # show in order of confidence
-        print("\t%.2f\t%s" % (levels[jdx], moves[jdx]))
+    print(' ; '.join(["%s (%.2f)" % (moves[jdx], levels[jdx])
+                      for jdx in np.argsort(levels)[::-1]]))
 
     # TMHM moveset.
     print("TMHM moveset:")
     probs = torch.sigmoid(y[idx:idx+len(tmhm_move_list)]).numpy()
     idx += len(tmhm_move_list)
-    for jdx in np.argsort(probs)[::-1]:
-        if probs[jdx] >= torch.sigmoid(torch.tensor([1], dtype=torch.float64)).item():
-            print("\t%.2f\t%s" % (probs[jdx].item(), tmhm_move_list[jdx]))
+    print(' ; '.join(["%s (%.2f)" % (tmhm_move_list[jdx], probs[jdx].item())
+                      for jdx in np.argsort(probs)[::-1]
+                      if probs[jdx] >= torch.sigmoid(torch.tensor([1], dtype=torch.float64)).item()]))
 
     # Egg groups.
     egg_v = list(y[idx:idx + len(egg_groups_list)].detach())
@@ -283,12 +309,13 @@ def print_mon_vec(y, z_mean, z_std,
 
 
 def main(args):
+    device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
     print("Reading mon model metadata from '%s'..." % args.input_fn)
     with open(args.input_fn, 'r') as f:
         d = json.load(f)
         mon_list = d["mon_list"]
-        mon_metadata = d["mon_metadata"]
+        mon_icons = [d['mon_metadata'][mon_list[midx]]["icon"] for midx in range(len(mon_list))]
         z_mean = d["z_mean"]
         z_std = d["z_std"]
         input_dim = d["input_dim"]
@@ -301,10 +328,9 @@ def main(args):
         egg_group_list = d["egg_group_list"]
         growth_rates_list = d["growth_rates_list"]
         gender_ratios_list = d["gender_ratios_list"]
-        moves_pos_weight = torch.tensor(np.asarray(d["moves_pos_weight"]), dtype=torch.float32)
-        tmhm_pos_weight = torch.tensor(np.asarray(d["tmhm_pos_weight"]), dtype=torch.float32)
-        x = torch.tensor(np.asarray(d["x_input"]), dtype=torch.float32)
-    df = pd.DataFrame.from_dict(mon_metadata, orient='index')
+        moves_pos_weight = torch.tensor(np.asarray(d["moves_pos_weight"]), dtype=torch.float32).to(device)
+        tmhm_pos_weight = torch.tensor(np.asarray(d["tmhm_pos_weight"]), dtype=torch.float32).to(device)
+        x = torch.tensor(np.asarray(d["x_input"]), dtype=torch.float32).to(device)
     print("... done")
 
     # Construct our model.
@@ -312,14 +338,16 @@ def main(args):
     model = Autoencoder(input_dim, h,
                         len(int_data), len(type_list), len(abilities_list),
                         len(moves_list), len(tmhm_moves_list),
-                        len(egg_group_list), len(growth_rates_list), len(gender_ratios_list))
+                        len(egg_group_list), len(growth_rates_list), len(gender_ratios_list),
+                        device)
 
     # Construct our loss function and an Optimizer.
     criterion = MonReconstructionLoss(x.shape[0], h,
                                       len(type_list), len(abilities_list),
                                       len(moves_list), len(tmhm_moves_list),
                                       moves_pos_weight, tmhm_pos_weight,
-                                      len(egg_group_list), len(growth_rates_list), len(gender_ratios_list))
+                                      len(egg_group_list), len(growth_rates_list), len(gender_ratios_list),
+                                      device)
     optimizer = torch.optim.SGD(model.parameters(), lr=1e-4)
 
     if args.input_model_pref:
@@ -336,6 +364,7 @@ def main(args):
     tsne = TSNE(random_state=1, n_iter=1000, metric="euclidean")  # For visualizing embeddings.
     least_loss = None
     for t in range(epochs + 1):
+        model.train()
         # Forward pass: Compute predicted y by passing x to the model
         y_pred, h_std_pred = model(x)
 
@@ -347,14 +376,16 @@ def main(args):
             # Sample some mon
             if t % mon_every == 0:
                 with torch.no_grad():
+                    model.eval()
                     # Show sample forward pass.
+                    y_pred, h_std_pred = model(x)
                     print("Forward pass categorical losses:")
                     criterion.forward(y_pred, h_std_pred, x, debug=True)
 
                     # Visualize mon embeddings at this stage.
                     embs_mu, embs_std = model.encode(x)
                     if h > 2:
-                        embs_2d = tsne.fit_transform(embs_mu)
+                        embs_2d = tsne.fit_transform(embs_mu.cpu())
                     elif h == 2:
                         embs_2d = embs_mu.detach()
                     else:  # h == 1
@@ -363,7 +394,7 @@ def main(args):
                         embs_2d[:, 1] = embs_mu.detach()[:, 0]
                     fig, ax = plt.subplots(figsize=(10, 10))
                     ax.scatter(embs_2d[:, 0], embs_2d[:, 1], alpha=.1)
-                    paths = [df["icon"][midx] for midx in range(len(mon_list))]
+                    paths = mon_icons
                     for x0, y0, path in zip(embs_2d[:, 0], embs_2d[:, 1], paths):
                         img = plt.imread(path)
                         ab = AnnotationBbox(OffsetImage(img[:32, :32, :]),
@@ -375,17 +406,17 @@ def main(args):
                     # Show reconstruction mon.
                     print("Sample reconstruction mon:")
                     for _ in range(n_mon_every):
-                        midx = np.random.choice(list(range(len(mon_metadata))))
+                        midx = np.random.choice(list(range(len(mon_list))))
                         print("----------")
-                        print(df["species"][midx], "orig")
-                        print_mon_vec(x[midx], z_mean, z_std,
+                        print(mon_list[midx], "orig")
+                        print_mon_vec(x[midx].cpu(), z_mean, z_std,
                                       type_list, abilities_list,
                                       moves_list, tmhm_moves_list,
                                       egg_group_list, growth_rates_list, gender_ratios_list)
                         print("----------")
-                        print(df["species"][midx], "embedded", embs_mu[midx])
+                        print(mon_list[midx], "embedded")
                         y = model.decode(embs_mu[midx].unsqueeze(0))
-                        print_mon_vec(y[0], z_mean, z_std,
+                        print_mon_vec(y[0].cpu(), z_mean, z_std,
                                       type_list, abilities_list,
                                       moves_list, tmhm_moves_list,
                                       egg_group_list, growth_rates_list, gender_ratios_list)
@@ -394,11 +425,11 @@ def main(args):
                     # Show sample mon.
                     print("Sample generated mon:")
                     for _ in range(n_mon_every):
-                        z = torch.randn(h)
+                        z = torch.mean(embs_mu.cpu(), dim=0) + torch.std(embs_mu.cpu(), dim=0) * torch.randn(h)
                         print("----------")
-                        print("random embedding", z)
-                        y = model.decode(z.unsqueeze(0))
-                        print_mon_vec(y[0], z_mean, z_std,
+                        print("random embedding")
+                        y = model.decode(z.unsqueeze(0).to(device))
+                        print_mon_vec(y[0].cpu(), z_mean, z_std,
                                       type_list, abilities_list,
                                       moves_list, tmhm_moves_list,
                                       egg_group_list, growth_rates_list, gender_ratios_list)
@@ -411,8 +442,6 @@ def main(args):
                 print("... wrote least loss model with l=%.5f at epoch %d" % (least_loss, t))  # verbose
             torch.save(model.state_dict(), "%s.best.model" % args.output_fn)
             torch.save(optimizer.state_dict(), "%s.best.opt" % args.output_fn)
-            for name, param in model.state_dict().items():  # DEBUG
-                print(name, param)  # DEBUG
 
         # Zero gradients, perform a backward pass, and update the weights.
         optimizer.zero_grad()
@@ -429,7 +458,7 @@ if __name__ == '__main__':
     parser.add_argument('--input_model_pref', type=str,
                         help='input model/optimizer weights prefix to continue training')
     parser.add_argument('--verbose', dest='verbose', action='store_true',
-                        help='whether ')
+                        help='whether to print a bunch')
     args = parser.parse_args()
 
     main(args)
