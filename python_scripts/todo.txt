@@ -1,19 +1,14 @@
 
-- ROM changes
-    - wally zigzagoon
-    - birch zigzagoon
-    - [?] Winona bug (in opt)
 
 - individual mon
     - [P4] generate icon files from embedding
     - [P4] generate large front / back sprites from icons (trained once)
 
-- evolution network
-    - [P1] don't re-learn level moves from base self
-    - [P2] add different evolution types
-
 - replacement
-    - [P0] write mon json from network sampler that mirrors expected input for game mapper
     - [P0] create mon maps from original mon to generated mon to get coherent game mapping
-    - [P0] write new mon metadata into game ROM files
     - [P1] test mapped replacement on ROM
+    - [P1] write mon pokedex entries
+
+- ROM changes
+    - wally zigzagoon
+    - birch zigzagoon

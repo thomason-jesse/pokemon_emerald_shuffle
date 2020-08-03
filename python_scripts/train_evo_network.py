@@ -1,17 +1,18 @@
 import argparse
 import json
 import numpy as np
-import pandas as pd
 import torch
 
 torch.manual_seed(0)
 
 from train_mon_network import Autoencoder, print_mon_vec
 
-emb_w = np.power(2, 3)
+emb_w = np.power(2, 4)
 lvl_w = np.power(2, 2)
 item_w = np.power(2, 1)
 type_w = np.power(2, 0)
+kl_w = 1
+epsilon = 10**-10  # added to ReLU of std prediction to make positive.
 
 
 class EvoNet(torch.nn.Module):
@@ -23,6 +24,9 @@ class EvoNet(torch.nn.Module):
         # Shrink with non-linear layer.
         self.linear1 = torch.nn.Linear(input_dim, hidden_dim).to(device)
         self.nonlinear1 = torch.nn.Tanh()
+        self.vae_linear = [torch.nn.Linear(hidden_dim, hidden_dim).to(device),
+                           torch.nn.Linear(hidden_dim, hidden_dim).to(device)]
+        self.std_relu = torch.nn.ReLU()
 
         # Prediction layers.
         self.evo_emb_linear = torch.nn.Linear(hidden_dim, output_dim).to(device)
@@ -37,6 +41,14 @@ class EvoNet(torch.nn.Module):
     def forward(self, x):
         h = self.linear1(x)
         h = self.nonlinear1(h)
+        h_mu = self.vae_linear[0](h)
+        h_std = self.std_relu(self.vae_linear[1](h)) + epsilon * torch.ones_like(h_mu)
+
+        if self.training:
+            std_coeff = torch.rand_like(h_std)
+        else:
+            std_coeff = torch.ones_like(h_std)
+        h = h_mu + h_std * std_coeff
 
         # Embedding values transformed by an appropriate layer.
         y_emb = self.evo_emb_linear(h)  # project down (use directly for MSE loss)
@@ -44,7 +56,7 @@ class EvoNet(torch.nn.Module):
         y_item = self.evo_item_linear(h)  # project down (goes to softmax+CE)
         y_level = self.evo_level_linear(h)  # project down (use directly for MSE loss)
 
-        return y_emb, y_type, y_item, y_level
+        return h_mu, h_std, y_emb, y_type, y_item, y_level
 
 
 class EvoReconstructionLoss:
@@ -54,7 +66,7 @@ class EvoReconstructionLoss:
         self.item_loss = torch.nn.CrossEntropyLoss(ignore_index=evo_item_ignore_idx)  # Has sigmoid.
         self.level_loss = torch.nn.MSELoss()
 
-    def forward(self, input_emb, input_type, input_item, input_level,
+    def forward(self, h_mu, h_std, input_emb, input_type, input_item, input_level,
                 target_emb, target_type, target_item, target_level,
                 debug=False):
 
@@ -62,13 +74,15 @@ class EvoReconstructionLoss:
         type_loss = self.type_loss(input_type, target_type)
         item_loss = self.item_loss(input_item, target_item)
         level_loss = self.level_loss(input_level, target_level)
+        kl_l = torch.mean(h_std ** 2 + h_mu ** 2 - torch.log(h_std) - torch.ones_like(h_std))
 
         if debug:
             print("emb loss %.5f(%.5f)" % (emb_loss.item(), emb_w * emb_loss.item()))
             print("type loss %.5f(%.5f)" % (type_loss.item(), type_w * type_loss.item()))
             print("item loss %.5f(%.5f)" % (item_loss.item(), item_w * item_loss.item()))
             print("level loss %.5f(%.5f)" % (level_loss.item(), lvl_w * level_loss.item()))
-        return emb_w * emb_loss + type_w * type_loss + item_w * item_loss + lvl_w * level_loss
+            print("kl loss %.5f(%.5f)" % (kl_l.item(), kl_w * kl_l.item()))
+        return emb_w * emb_loss + type_w * type_loss + item_w * item_loss + lvl_w * level_loss + kl_w * kl_l
 
 
 def main(args):
@@ -151,7 +165,13 @@ def main(args):
 
     # Construct our loss function and an Optimizer.
     criterion = EvoReconstructionLoss(ev_items_list.index('NONE'))
-    optimizer = torch.optim.SGD(model.parameters(), lr=1e-3)
+    optimizer = torch.optim.SGD(model.parameters(), lr=1e-5)
+
+    if args.input_model_pref:
+        print("Loading initial model and optimizer weights from prefix '%s'..." % args.input_model_pref)
+        model.load_state_dict(torch.load("%s.model" % args.input_model_pref))
+        optimizer.load_state_dict(torch.load("%s.opt" % args.input_model_pref))
+        print("... done")
 
     # Train.
     epochs = 10000
@@ -172,10 +192,11 @@ def main(args):
             y_level[jdx] = evo_level_out[jdx]
 
         # Forward pass: Compute predicted y by passing x to the model
-        emb_pred, type_pred, item_pred, level_pred = model(x_emb)
+        h_mu, h_std, emb_pred, type_pred, item_pred, level_pred = model(x_emb)
 
         # Compute and print loss
-        loss = criterion.forward(emb_pred, type_pred, item_pred, level_pred,
+        loss = criterion.forward(h_mu, h_std,
+                                 emb_pred, type_pred, item_pred, level_pred,
                                  y_emb, y_type, y_item, y_level)
         if t % print_every == 0:
             print("epoch %d\tloss %.5f" % (t, loss.item()))
@@ -186,7 +207,8 @@ def main(args):
                     model.eval()
                     # Show sample forward pass.
                     print("Forward pass categorical losses:")
-                    criterion.forward(emb_pred, type_pred, item_pred, level_pred,
+                    criterion.forward(h_mu, h_std,
+                                      emb_pred, type_pred, item_pred, level_pred,
                                       y_emb, y_type, y_item, y_level,
                                       debug=True)
 
@@ -202,7 +224,7 @@ def main(args):
                                       moves_list, tmhm_moves_list,
                                       egg_group_list, growth_rates_list, gender_ratios_list)
                         print("----------Evolved mon")
-                        y_evo_emb, y_type_pred, y_item_pred, y_level_pred = model.forward(embs_mu[midx].unsqueeze(0))
+                        h_emb, h_std, y_evo_emb, y_type_pred, y_item_pred, y_level_pred = model.forward(embs_mu[midx].unsqueeze(0))
                         y_evo_base = autoencoder_model.decode(y_evo_emb)
                         print("Evo type: %s\nEvo item: %s\nEvo level: %.0f" %
                               (ev_types_list[int(np.argmax(y_type_pred.cpu()))],
@@ -239,6 +261,8 @@ if __name__ == '__main__':
                         help='the input file for the mon metadata')
     parser.add_argument('--output_fn', type=str, required=True,
                         help='the output file for the trained generator network')
+    parser.add_argument('--input_model_pref', type=str,
+                        help='input model/optimizer weights prefix to continue training')
     parser.add_argument('--verbose', dest='verbose', action='store_true',
                         help='whether to print a bunch')
     args = parser.parse_args()

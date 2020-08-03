@@ -35,6 +35,7 @@ gender_w = 1
 
 # Increase KL weight to get more Guassian-looking clusters if overfitting; decrease to more tightly fit training data.
 kl_w = 1
+epsilon = 10**-10  # added to ReLU of std prediction to make positive.
 
 
 class Autoencoder(torch.nn.Module):
@@ -52,6 +53,7 @@ class Autoencoder(torch.nn.Module):
         self.nonlinear2 = torch.nn.Tanh()
         self.vae_linear = [torch.nn.Linear(hidden_dim, hidden_dim).to(device),
                            torch.nn.Linear(hidden_dim, hidden_dim).to(device)]
+        self.std_relu = torch.nn.ReLU()
 
         # Decoder layers.
         self.int_data_linear = torch.nn.Linear(hidden_dim, n_int_data).to(device)
@@ -81,7 +83,8 @@ class Autoencoder(torch.nn.Module):
         h = self.linear2(h)
         h = self.nonlinear2(h)
         h_mu = self.vae_linear[0](h)
-        h_std = self.vae_linear[1](h)
+        h_std = self.std_relu(self.vae_linear[1](h)) + epsilon * torch.ones_like(h_mu)
+        # h_std = self.vae_linear[1](h)
 
         return h_mu, h_std
 
@@ -114,8 +117,9 @@ class Autoencoder(torch.nn.Module):
             std_coeff = torch.rand_like(h_std)
         else:
             std_coeff = torch.ones_like(h_std)
-        y_pred = self.decode(h_mu + torch.exp(h_std) * std_coeff)
-        return y_pred, h_std
+        y_pred = self.decode(h_mu + h_std * std_coeff)
+        # y_pred = self.decode(h_mu + torch.exp(h_std) * std_coeff)
+        return y_pred, h_mu, h_std
 
 
 class MaskedMSELoss(torch.nn.Module):
@@ -147,10 +151,6 @@ class MonReconstructionLoss:
         self.growth_loss = torch.nn.CrossEntropyLoss()  # Has sigmoid.
         self.gender_loss = torch.nn.CrossEntropyLoss()  # Has sigmoid.
 
-        # Expects log probabilities as input, probabilities as targets.
-        self.kl_loss = torch.nn.KLDivLoss(reduction='batchmean')
-        self.kl_target = torch.ones(batch_size, hidden_dim).to(device)
-
         self.n_types = n_types
         self.n_abilities = n_abilities
         self.n_moves = n_moves
@@ -159,56 +159,58 @@ class MonReconstructionLoss:
         self.n_growth_rates = n_growth_rates
         self.n_gender_ratios = n_gender_ratios
 
-    def forward(self, input_emb, input_std, target, debug=False):
+    def forward(self, input_rec, input_emb, input_std, target, debug=False):
         idx = 0
 
         # Numeric data loss.
-        int_data_l = self.int_data_loss(input_emb[:, idx:idx + len(int_data)],
+        int_data_l = self.int_data_loss(input_rec[:, idx:idx + len(int_data)],
                                         target[:, idx:idx + len(int_data)])
         idx += len(int_data)
 
         # Type loss.
-        type_l = self.type_loss(input_emb[:, idx:idx + self.n_types],
+        type_l = self.type_loss(input_rec[:, idx:idx + self.n_types],
                                 target[:, idx:idx + self.n_types])
         idx += self.n_types
 
         # N evolutions loss.
-        n_evolutions_l = self.n_evolution_loss(input_emb[:, idx:idx+3],
+        n_evolutions_l = self.n_evolution_loss(input_rec[:, idx:idx+3],
                                                target[:, idx:idx+3].nonzero()[:, 1])
         idx += 3
 
         # Abilities loss.
-        abilities_l = self.ability_loss(input_emb[:, idx:idx + self.n_abilities],
+        abilities_l = self.ability_loss(input_rec[:, idx:idx + self.n_abilities],
                                         target[:, idx:idx + self.n_abilities])
         idx += self.n_abilities
 
         # Levelup moveset loss.
-        levelup_move_l = self.levelup_move_loss(input_emb[:, idx:idx + self.n_moves],
+        levelup_move_l = self.levelup_move_loss(input_rec[:, idx:idx + self.n_moves],
                                                 target[:, idx:idx + self.n_moves])
         idx += self.n_moves
 
         # TMHM moveset loss.
-        tmhm_move_l = self.tmhm_move_loss(input_emb[:, idx:idx + self.n_tmhm_moves],
+        tmhm_move_l = self.tmhm_move_loss(input_rec[:, idx:idx + self.n_tmhm_moves],
                                           target[:, idx:idx + self.n_tmhm_moves])
         idx += self.n_tmhm_moves
 
         # Egg groups loss.
-        egg_l = self.egg_loss(input_emb[:, idx:idx + self.n_egg_groups],
+        egg_l = self.egg_loss(input_rec[:, idx:idx + self.n_egg_groups],
                               target[:, idx:idx + self.n_egg_groups])
         idx += self.n_egg_groups
 
         # Growth rate loss.
-        growth_l = self.growth_loss(input_emb[:, idx:idx + self.n_growth_rates],
+        growth_l = self.growth_loss(input_rec[:, idx:idx + self.n_growth_rates],
                                     target[:, idx:idx + self.n_growth_rates].nonzero()[:, 1])
         idx += self.n_growth_rates
 
         # Gender ratios loss.
-        gender_l = self.gender_loss(input_emb[:, idx:idx + self.n_gender_ratios],
+        gender_l = self.gender_loss(input_rec[:, idx:idx + self.n_gender_ratios],
                                     target[:, idx:idx + self.n_gender_ratios].nonzero()[:, 1])
         idx += self.n_gender_ratios
 
         # KL divergence of input std dev with Guassian.
-        kl_l = torch.abs(self.kl_loss(input_std, self.kl_target))
+        # https://towardsdatascience.com/intuitively-understanding-variational-autoencoders-1bfe67eb5daf
+        kl_l = torch.mean(input_std**2 + input_emb**2 - torch.log(input_std) - torch.ones_like(input_std))
+        # kl_l = torch.sum(torch.exp(input_std)**2 + input_emb**2 - input_std - torch.ones_like(input_std))
 
         if debug:
             print("int_data loss\t%.5f\t(%.5f)" % (int_data_l.item(), int_data_w * int_data_l.item()))
@@ -366,10 +368,10 @@ def main(args):
     for t in range(epochs + 1):
         model.train()
         # Forward pass: Compute predicted y by passing x to the model
-        y_pred, h_std_pred = model(x)
+        y_pred, h_emb_pred, h_std_pred = model(x)
 
         # Compute and print loss
-        loss = criterion.forward(y_pred, h_std_pred, x)
+        loss = criterion.forward(y_pred, h_emb_pred, h_std_pred, x)
         if t % print_every == 0:
             print("epoch %d\tloss %.5f" % (t, loss.item()))
 
@@ -378,9 +380,9 @@ def main(args):
                 with torch.no_grad():
                     model.eval()
                     # Show sample forward pass.
-                    y_pred, h_std_pred = model(x)
+                    y_pred, h_emb_pred, h_std_pred = model(x)
                     print("Forward pass categorical losses:")
-                    criterion.forward(y_pred, h_std_pred, x, debug=True)
+                    criterion.forward(y_pred, h_emb_pred, h_std_pred, x, debug=True)
 
                     # Visualize mon embeddings at this stage.
                     embs_mu, embs_std = model.encode(x)
