@@ -4,8 +4,12 @@ import json
 # Paths.
 base_stats_fns = ['orig/base_stats.h', '../src/data/pokemon/base_stats.h']
 evolution_fns = ['orig/evolution.h', '../src/data/pokemon/evolution.h']
-level_up_learnsets_fn = ['orig/level_up_learnsets.h', '../src/data/pokemon/level_up_learnsets.h']
-tmhm_learnsets_fn = ['orig/tmhm_learnsets.h', '../src/data/pokemon/tmhm_learnsets.h']
+level_up_learnsets_fns = ['orig/level_up_learnsets.h', '../src/data/pokemon/level_up_learnsets.h']
+tmhm_learnsets_fns = ['orig/tmhm_learnsets.h', '../src/data/pokemon/tmhm_learnsets.h']
+pokedex_fns = ['orig/pokedex_text.h', '../src/data/pokemon/pokedex_text.h']
+
+stat_data = ['baseHP', 'baseAttack', 'baseDefense',
+             'baseSpeed', 'baseSpAttack', 'baseSpDefense']
 
 
 def main(args):
@@ -94,10 +98,10 @@ def main(args):
     # Replace level up learnsets.
     # Replace evolutions.
     print("Replacing level up learnsets by reading from '%s' and writing to '%s'" %
-          (level_up_learnsets_fn[0], level_up_learnsets_fn[1]))
+          (level_up_learnsets_fns[0], level_up_learnsets_fns[1]))
     n_edited_lines = n_lines = 0
-    with open(level_up_learnsets_fn[1], 'w') as f_out:
-        with open(level_up_learnsets_fn[0], 'r') as f_in:
+    with open(level_up_learnsets_fns[1], 'w') as f_out:
+        with open(level_up_learnsets_fns[0], 'r') as f_in:
             for line in f_in.readlines():
                 n_lines += 1
 
@@ -138,7 +142,7 @@ def main(args):
     # Reaad in TMHM numbers to prepend to moves.
     print("Reading through TMHM file to get numbers ahead of moves...")
     tmhm_prefix = {}
-    with open(tmhm_learnsets_fn[0], 'r') as f:
+    with open(tmhm_learnsets_fns[0], 'r') as f:
         for line in f.readlines():
             # Header line for new species
             #     [SPECIES_BULBASAUR]   = TMHM_LEARNSET(TMHM(TM06_TOXIC)
@@ -159,10 +163,10 @@ def main(args):
 
     # Replace TMHM learnsets.
     print("Replacing level up learnsets by reading from '%s' and writing to '%s'" %
-          (tmhm_learnsets_fn[0], tmhm_learnsets_fn[1]))
+          (tmhm_learnsets_fns[0], tmhm_learnsets_fns[1]))
     n_edited_lines = n_lines = 0
-    with open(tmhm_learnsets_fn[1], 'w') as f_out:
-        with open(tmhm_learnsets_fn[0], 'r') as f_in:
+    with open(tmhm_learnsets_fns[1], 'w') as f_out:
+        with open(tmhm_learnsets_fns[0], 'r') as f_in:
             for line in f_in.readlines():
                 n_lines += 1
 
@@ -186,7 +190,89 @@ def main(args):
                 f_out.write(line)
     print("... done; edited %d/%d lines" % (n_edited_lines, n_lines))
 
-    # TODO: Replace Pokedex entries.
+    # Read through pokedex to get line character counts.
+    print("Reading through Pokedex original file to get max characters per line...")
+    max_lc = 0
+    with open(pokedex_fns[0], 'r') as f:
+        for line in f.readlines():
+
+            # Read text line
+            #     "This is a newly discovered POKeMON.\n"
+            #     "adding new rocks.");
+            if '"' in line:
+                lc = len(line.strip().strip(');').strip('"').strip())
+                if lc > max_lc:
+                    max_lc = lc
+    print("... done; will write up to %d chars per line" % max_lc)
+
+    # Replace Pokedex entries.
+    print("Replacing pokedex entries reading from '%s' and writing to '%s'" %
+          (pokedex_fns[0], pokedex_fns[1]))
+    n_edited_lines = n_lines = 0
+    with open(pokedex_fns[1], 'w') as f_out:
+        with open(pokedex_fns[0], 'r') as f_in:
+            for line in f_in.readlines():
+                n_lines += 1
+
+                # New species entry, go ahead and dump everything.
+                # const u8 gBulbasaurPokedexText[] = _(
+                if 'PokedexText[]' in line:
+                    ps = line.strip().split()
+                    curr_species = ps[2][1:-len('PokedexText[]')]
+
+                    if 'Dummy' not in curr_species:
+
+                        if curr_species == 'NidoranF':
+                            curr_species = 'Nidoran_F'
+                        elif curr_species == 'NidoranM':
+                            curr_species = 'Nidoran_M'
+                        elif curr_species == 'Mrmime':
+                            curr_species = 'Mr_mime'
+                        elif curr_species == 'HoOh':
+                            curr_species = 'Ho_Oh'
+                        curr_species = 'SPECIES_%s' % curr_species.upper()
+
+                        # Create pokedex text.
+                        text = 'Sim stats: %s. ' % mon_metadata[curr_species]['nn'][len('SPECIES_'):].replace('_', '-')
+                        text += '; '.join(['%s %s' % (s[len('base'):], mon_metadata[curr_species][s])
+                                          for s in stat_data]) + '. '
+                        if curr_species in mon_evolution:
+                            for _, ev_type, ev_val in mon_evolution[curr_species]:
+                                if 'FRIENDSHIP' in ev_type:
+                                    text += "Evolves by friendship"
+                                    if 'DAY' in ev_type:
+                                        text += " (day). "
+                                    elif 'NIGHT' in ev_type:
+                                        text += " (night). "
+                                    else:
+                                        text += '. '
+                                if type(ev_val) is int:
+                                    if ev_type == 'EVO_BEAUTY':
+                                        text += "Evolves when beauty %d. " % ev_val
+                                    else:
+                                        text += "Evolves lvl %d. " % ev_val
+                                else:
+                                    text += "Evolves with %s. " % ev_val[len('ITEM_'):].replace('_', ' ')
+                        text += "Learns " + ', '.join([mon_levelup_moveset[curr_species][idx][1][len('MOVE_'):].replace('_', ' ')
+                                                       for idx in
+                                                       range(len(mon_levelup_moveset[curr_species]) - 1, -1, -1)])
+
+                        # Dump as much as will fit into four lines.
+                        for jdx in range(4):
+                            n_edited_lines += 1
+                            text_sub = text[:min(len(text), max_lc)]
+                            text = text[min(len(text), max_lc):]
+                            line += '%s"%s%s"%s\n' % (tab_str, text_sub, '' if jdx == 3 else '\\n', ');' if jdx == 3 else '')
+                    else:
+                        curr_species = None
+
+                # Line to be ignored.
+                #     LEVEL_UP_MOVE( 1, MOVE_TACKLE),
+                elif curr_species is not None and '"' in line:
+                    continue
+
+                f_out.write(line)
+    print("... done; edited %d/%d lines" % (n_edited_lines, n_lines))
 
 
 if __name__ == '__main__':

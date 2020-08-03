@@ -556,6 +556,7 @@ def main(args):
     print("... done; achieved average %.2f(target %.2f) tmhm moves with threshold %.4f" %
           (last_avg, avg_tmhm_moves, tmhm_thresh))
 
+    n_to_show = 0  # DEBUG
     for m in new_mon:  # Limit levelup and tmhm moves by new thresholds.
         m['levelup_moveset'].sort(key=lambda x: x[2])  # Sort by confidence
         keep_highest = [0] if 'evo_from' not in m else [0, 1]
@@ -581,6 +582,14 @@ def main(args):
                                  if m['mon_tmhm_moveset'][idx][1] > tmhm_thresh or
                                  # By now, base tmhm moveset is just a list of moves, not including confs.
                                  m['mon_tmhm_moveset'][idx][0] in base_tmhm_moveset]
+
+        # DEBUG
+        if 'evolution' in m:
+            n_to_show += len(m['evolution']) + 1
+        if n_to_show > 0:
+            n_to_show -= 1
+            print(m)
+            _ = input()  # DEBUG
 
     # Visualize sampled mon embeddings based on their NNs.
     print("Drawing TSNE visualization of new sampled mon embeddings...")
@@ -634,6 +643,24 @@ def main(args):
     with open(args.output_fn, 'w') as f:
         json.dump(d, f, indent=2)
     print("... done; wrote to '%s'" % args.output_fn)
+
+    # Quickly analyze type distribution.
+    tc = {}
+    for m in new_mon:
+        t = (m['type1'], m['type2'])
+        if t not in tc:
+            tc[t] = 0
+        tc[t] += 1
+    tcs = {k: v / float(len(new_mon)) for k, v in sorted(tc.items(), key=lambda item: item[1], reverse=True)}
+    print(tcs)
+    tc = {}
+    for m in mon_metadata:
+        t = (mon_metadata[m]['type1'], mon_metadata[m]['type2'])
+        if t not in tc:
+            tc[t] = 0
+        tc[t] += 1
+    tcs = {k: v / float(len(mon_metadata)) for k, v in sorted(tc.items(), key=lambda item: item[1], reverse=True)}
+    print(tcs)
 
 
 if __name__ == '__main__':

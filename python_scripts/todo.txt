@@ -1,13 +1,11 @@
 
-
-- individual mon
-    - [P4] generate icon files from embedding
-    - [P4] generate large front / back sprites from icons (trained once)
-
 - replacement
-    - [P0] create mon maps from original mon to generated mon to get coherent game mapping
-    - [P1] test mapped replacement on ROM
     - [P1] write mon pokedex entries
+    - [P2] generate icon files from embedding
+    - [P2] generate large front / back sprites from icons (trained once)
+
+- evolution
+    - [P3] consider writing analytical evolver based on average embedding change to circumvent difficult to train network
 
 - ROM changes
     - wally zigzagoon
