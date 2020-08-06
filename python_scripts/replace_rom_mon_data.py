@@ -7,6 +7,7 @@ evolution_fns = ['orig/evolution.h', '../src/data/pokemon/evolution.h']
 level_up_learnsets_fns = ['orig/level_up_learnsets.h', '../src/data/pokemon/level_up_learnsets.h']
 tmhm_learnsets_fns = ['orig/tmhm_learnsets.h', '../src/data/pokemon/tmhm_learnsets.h']
 pokedex_fns = ['orig/pokedex_text.h', '../src/data/pokemon/pokedex_text.h']
+names_fns = ['orig/species_names.h', '../src/data/text/species_names.h']
 
 stat_data = ['baseHP', 'baseAttack', 'baseDefense',
              'baseSpeed', 'baseSpAttack', 'baseSpDefense']
@@ -203,6 +204,7 @@ def main(args):
                 lc = len(line.strip().strip(');').strip('"').strip())
                 if lc > max_lc:
                     max_lc = lc
+    max_lc -= 4
     print("... done; will write up to %d chars per line" % max_lc)
 
     # Replace Pokedex entries.
@@ -272,6 +274,26 @@ def main(args):
                     continue
 
                 f_out.write(line)
+    print("... done; edited %d/%d lines" % (n_edited_lines, n_lines))
+
+    # Replace species names.
+    print("Replacing species names reading from '%s' and writing to '%s'" %
+          (names_fns[0], names_fns[1]))
+    n_edited_lines = n_lines = 0
+    with open(names_fns[1], 'w') as f_out:
+        with open(names_fns[0], 'r') as f_in:
+            for line in f_in.readlines():
+                n_lines += 1
+
+                # New species entry.
+                #     [SPECIES_BULBASAUR] = _("BULBASAUR"),
+                if '=' in line:
+                    species = line.strip().split('=')[0].strip().strip('[]')
+                    if species in mon_metadata:
+                        n_edited_lines += 1
+                        line = '%s[%s] = _("%s"),\n' % (tab_str, species, mon_metadata[species]['name'])
+
+                f_out.write(line.encode("ascii", errors="ignore").decode())
     print("... done; edited %d/%d lines" % (n_edited_lines, n_lines))
 
 

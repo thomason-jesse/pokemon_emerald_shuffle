@@ -1,11 +1,5 @@
 
-- replacement
-    - [P1] write mon pokedex entries
-    - [P2] generate icon files from embedding
-    - [P2] generate large front / back sprites from icons (trained once)
-
-- evolution
-    - [P3] consider writing analytical evolver based on average embedding change to circumvent difficult to train network
+- write readme
 
 - ROM changes
     - wally zigzagoon

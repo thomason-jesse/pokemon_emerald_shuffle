@@ -11,69 +11,32 @@ emb_w = np.power(2, 3)
 lvl_w = np.power(2, 2)
 item_w = np.power(2, 1)
 type_w = np.power(2, 0)
-kl_w = 0.1
-epsilon = 10**-10  # added to ReLU of std prediction to make positive.
 
 
 class EvoNet(torch.nn.Module):
-    def __init__(self, input_dim, hidden_dim, output_dim,
+    def __init__(self, input_dim, output_dim,
                  n_evo_types, n_evo_items,
                  device):
         super(EvoNet, self).__init__()
 
-        # Shrink with non-linear layer.
-        # self.linear1 = torch.nn.Linear(input_dim, hidden_dim).to(device)
-        # self.nonlinear1 = torch.nn.Tanh()
-        # self.vae_linear = [torch.nn.Linear(hidden_dim, hidden_dim).to(device),
-        #                    torch.nn.Linear(hidden_dim, hidden_dim).to(device)]
-        # self.std_relu = torch.nn.ReLU()
-
         # Just do one linear transformation.
-        self.vae_linear = [torch.nn.Linear(input_dim, output_dim).to(device),
-                           torch.nn.Linear(input_dim, output_dim).to(device)]
-        self.std_relu = torch.nn.ReLU()
-
-        # Prediction layers.
-        # self.evo_emb_linear = torch.nn.Linear(hidden_dim, output_dim).to(device)
-        # self.evo_type_linear = torch.nn.Linear(hidden_dim, n_evo_types).to(device)
-        # self.evo_item_linear = torch.nn.Linear(hidden_dim, n_evo_items).to(device)
-        # self.evo_level_linear = torch.nn.Linear(hidden_dim, 1).to(device)
+        self.emb_linear = torch.nn.Linear(input_dim, output_dim).to(device)
 
         # Prediction layers will take in B - A and produce output.
         self.evo_type_linear = torch.nn.Linear(output_dim, n_evo_types).to(device)
         self.evo_item_linear = torch.nn.Linear(output_dim, n_evo_items).to(device)
         self.evo_level_linear = torch.nn.Linear(output_dim, 1).to(device)
 
-        # self.hidden_dim = hidden_dim
         self.n_evo_types = n_evo_types
         self.n_evo_items = n_evo_items
 
     def forward(self, x):
-        # h = self.linear1(x)
-        # h = self.nonlinear1(h)
-        # h_mu = self.vae_linear[0](h)
-        # h_std = self.std_relu(self.vae_linear[1](h)) + epsilon * torch.ones_like(h_mu)
-
-        h_std = self.std_relu(self.vae_linear[1](x)) + epsilon * torch.ones_like(x)
-
-        if self.training:
-            std_coeff = torch.rand_like(h_std)
-        else:
-            std_coeff = torch.ones_like(h_std)
-        # h = h_mu + h_std * std_coeff
-        y_emb = self.vae_linear[0](x + h_std * std_coeff)
-
-        # Embedding values transformed by an appropriate layer.
-        # y_emb = self.evo_emb_linear(h)  # project down (use directly for MSE loss)
-        # y_type = self.evo_type_linear(h)  # project down (goes to softmax+CE)
-        # y_item = self.evo_item_linear(h)  # project down (goes to softmax+CE)
-        # y_level = self.evo_level_linear(h)  # project down (use directly for MSE loss)
-
+        y_emb = self.emb_linear(x)
         y_type = self.evo_type_linear(y_emb - x)  # project down (goes to softmax+CE)
         y_item = self.evo_item_linear(y_emb - x)  # project down (goes to softmax+CE)
         y_level = self.evo_level_linear(y_emb - x)  # project down (use directly for MSE loss)
 
-        return y_emb, h_std, y_emb, y_type, y_item, y_level
+        return y_emb, y_type, y_item, y_level
 
 
 class EvoReconstructionLoss:
@@ -83,7 +46,7 @@ class EvoReconstructionLoss:
         self.item_loss = torch.nn.CrossEntropyLoss(ignore_index=evo_item_ignore_idx)  # Has sigmoid.
         self.level_loss = torch.nn.MSELoss()
 
-    def forward(self, h_mu, h_std, input_emb, input_type, input_item, input_level,
+    def forward(self, input_emb, input_type, input_item, input_level,
                 target_emb, target_type, target_item, target_level,
                 debug=False):
 
@@ -91,15 +54,13 @@ class EvoReconstructionLoss:
         type_loss = self.type_loss(input_type, target_type)
         item_loss = self.item_loss(input_item, target_item)
         level_loss = self.level_loss(input_level, target_level)
-        kl_l = torch.mean(h_std ** 2 + h_mu ** 2 - torch.log(h_std) - torch.ones_like(h_std))
 
         if debug:
             print("emb loss %.5f(%.5f)" % (emb_loss.item(), emb_w * emb_loss.item()))
             print("type loss %.5f(%.5f)" % (type_loss.item(), type_w * type_loss.item()))
             print("item loss %.5f(%.5f)" % (item_loss.item(), item_w * item_loss.item()))
             print("level loss %.5f(%.5f)" % (level_loss.item(), lvl_w * level_loss.item()))
-            print("kl loss %.5f(%.5f)" % (kl_l.item(), kl_w * kl_l.item()))
-        return emb_w * emb_loss + type_w * type_loss + item_w * item_loss + lvl_w * level_loss  # + kl_w * kl_l
+        return emb_w * emb_loss + type_w * type_loss + item_w * item_loss + lvl_w * level_loss
 
 
 def main(args):
@@ -149,8 +110,7 @@ def main(args):
 
     # Construct our model.
     h = ae_hidden_dim // 2
-    print("Input size: %d; one hidden layer of dimension %d" % (ae_hidden_dim, h))
-    model = EvoNet(ae_hidden_dim, h,
+    model = EvoNet(ae_hidden_dim,
                    ae_hidden_dim, n_evo_types, n_evo_items,
                    device).to(device)
 
@@ -175,6 +135,7 @@ def main(args):
                     evo_item_out.append(ev_items_list.index('NONE'))
                 evo_level_out.append(float(v) / 100. if t == 'EVO_LEVEL' else 0.)
     x_emb = torch.zeros((len(idx_in), ae_hidden_dim)).to(device)
+    x_std = torch.zeros((len(idx_in), ae_hidden_dim)).to(device)
     y_emb = torch.zeros((len(idx_in), ae_hidden_dim)).to(device)
     y_type = torch.zeros(len(idx_in), dtype=torch.long).to(device)
     y_item = torch.zeros(len(idx_in), dtype=torch.long).to(device)
@@ -190,6 +151,15 @@ def main(args):
         optimizer.load_state_dict(torch.load("%s.opt" % args.input_model_pref))
         print("... done")
 
+    # Prep inputs.
+    for jdx in range(len(idx_in)):
+        x_emb[jdx, :] = embs_mu[idx_in[jdx]]
+        x_std[jdx, :] = embs_std[idx_in[jdx]]
+        y_emb[jdx, :] = embs_mu[idx_out[jdx]]
+        y_type[jdx] = evo_type_out[jdx]
+        y_item[jdx] = evo_item_out[jdx]
+        y_level[jdx] = evo_level_out[jdx]
+
     # Train.
     epochs = 10000
     print_every = int(epochs / 100.)
@@ -199,21 +169,11 @@ def main(args):
     for t in range(epochs + 1):
         model.train()
 
-        # For each epoch, introduce new randomly perturbed inputs/outputs based on VAE encoding.
-        for jdx in range(len(idx_in)):
-            r = torch.randn(ae_hidden_dim).to(device)
-            x_emb[jdx, :] = embs_mu[idx_in[jdx]] + r * embs_std[idx_in[jdx]]
-            y_emb[jdx, :] = embs_mu[idx_out[jdx]] + r * embs_std[idx_out[jdx]]
-            y_type[jdx] = evo_type_out[jdx]
-            y_item[jdx] = evo_item_out[jdx]
-            y_level[jdx] = evo_level_out[jdx]
-
         # Forward pass: Compute predicted y by passing x to the model
-        h_mu, h_std, emb_pred, type_pred, item_pred, level_pred = model(x_emb)
+        emb_pred, type_pred, item_pred, level_pred = model(x_emb + torch.rand_like(x_std) * x_std)
 
         # Compute and print loss
-        loss = criterion.forward(h_mu, h_std,
-                                 emb_pred, type_pred, item_pred, level_pred,
+        loss = criterion.forward(emb_pred, type_pred, item_pred, level_pred,
                                  y_emb, y_type, y_item, y_level)
         if t % print_every == 0:
             print("epoch %d\tloss %.5f" % (t, loss.item()))
@@ -224,8 +184,7 @@ def main(args):
                     model.eval()
                     # Show sample forward pass.
                     print("Forward pass categorical losses:")
-                    criterion.forward(h_mu, h_std,
-                                      emb_pred, type_pred, item_pred, level_pred,
+                    criterion.forward(emb_pred, type_pred, item_pred, level_pred,
                                       y_emb, y_type, y_item, y_level,
                                       debug=True)
 
@@ -241,7 +200,7 @@ def main(args):
                                       moves_list, tmhm_moves_list,
                                       egg_group_list, growth_rates_list, gender_ratios_list)
                         print("----------Evolved mon")
-                        h_emb, h_std, y_evo_emb, y_type_pred, y_item_pred, y_level_pred = model.forward(embs_mu[midx].unsqueeze(0))
+                        y_evo_emb, y_type_pred, y_item_pred, y_level_pred = model.forward(embs_mu[midx].unsqueeze(0))
                         y_evo_base = autoencoder_model.decode(y_evo_emb)
                         print("Evo type: %s\nEvo item: %s\nEvo level: %.0f" %
                               (ev_types_list[int(np.argmax(y_type_pred.cpu()))],
@@ -251,10 +210,6 @@ def main(args):
                                       type_list, abilities_list,
                                       moves_list, tmhm_moves_list,
                                       egg_group_list, growth_rates_list, gender_ratios_list)
-
-            # Write trained model to file.
-            torch.save(model.state_dict(), "%s.%d.model" % (args.output_fn, t))
-            torch.save(optimizer.state_dict(), "%s.%d.opt" % (args.output_fn, t))
 
         # If this is the least loss achieved, write file.
         if least_loss is None or loss < least_loss:
