@@ -69,29 +69,33 @@ def main(args):
     n_edited_lines = n_lines = 0
     with open(evolution_fns[1], 'w') as f_out:
         with open(evolution_fns[0], 'r') as f_in:
+            data_dumped = False
+            can_dump = False
             for line in f_in.readlines():
                 n_lines += 1
 
                 # Data entry.
                 #     [SPECIES_BULBASAUR]  = {{EVO_LEVEL, 16, SPECIES_IVYSAUR}},
-                species = line.strip().split('=')[0].strip(' []')
-                if species in mon_evolution:
-                    if len(mon_evolution[species]) > 0:
-                        n_edited_lines += 1
-                        line = '%s[%s] = {%s},\n' % (tab_str, species,
-                                                     ', '.join(['{%s}' % ', '.join([str(s)
-                                                                                    for s in mon_evolution[species][idx]])
-                                                                for idx in range(len(mon_evolution[species]))]))
-                    else:
-                        # Don't write any data for a mon that now doesn't evolve.
-                        n_edited_lines += 1
-                        continue
+                if can_dump and not data_dumped:
+                    line = ''
+                    for species in mon_evolution:
+                        if len(mon_evolution[species]) > 0:
+                            n_edited_lines += 1
+                            line += '%s[%s] = {%s},\n' % (tab_str, species,
+                                                          ', '.join(['{%s}' % ', '.join([str(s)
+                                                                                         for s in mon_evolution[species][idx]])
+                                                                     for idx in range(len(mon_evolution[species]))]))
+                    data_dumped = True
 
-                # Metadata line to be ignored
+                # Metadata lines to be ignored
+                #     [SPECIES_BULBASAUR]  = {{EVO_LEVEL, 16, SPECIES_IVYSAUR}},
                 #                             {EVO_ITEM, ITEM_SUN_STONE, SPECIES_BELLOSSOM}},
-                if '=' not in line and '},' in line:
+                elif '[SPECIES_' in line or ('=' not in line and '},' in line):
                     n_edited_lines += 1
                     continue
+
+                if line.strip() == '{':
+                    can_dump = True
 
                 f_out.write(line)
     print("... done; edited %d/%d lines" % (n_edited_lines, n_lines))
