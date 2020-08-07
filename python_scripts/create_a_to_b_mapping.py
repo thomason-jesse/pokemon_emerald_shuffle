@@ -445,6 +445,7 @@ def main(args):
                                           type_map, type_list, penalize_same_type,
                                           mon_n_appearances)
         print("... done")
+        type2type = type_map
 
     # If we're optimizing the type map itself, need to do a tedious, greedy beam search for each type.
     else:
@@ -486,6 +487,8 @@ def main(args):
                                               mon_metadata_target, mon_evolution_target, mon_evolution_tr,
                                               type_map, type_list, penalize_same_type,
                                               mon_n_appearances, debug=True)
+
+        type2type = type_map
 
     # Perform simulated annealing.
     if args.tune_w_sa:

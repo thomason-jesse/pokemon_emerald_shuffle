@@ -5,6 +5,9 @@ import random
 import numpy as np
 import pandas as pd
 import torch
+from torchvision import transforms
+from PIL import Image
+import os
 
 from sklearn.manifold import TSNE
 import matplotlib as mpl
@@ -13,9 +16,12 @@ import matplotlib.pyplot as plt
 from matplotlib.offsetbox import OffsetImage, AnnotationBbox
 
 torch.manual_seed(0)
+random.seed(0)
+np.random.seed(0)
 
 from train_mon_network import Autoencoder, int_data
 from train_evo_network import EvoNet
+from train_sprite_network import SpriteNet
 
 stat_data = ['baseHP', 'baseAttack', 'baseDefense',
              'baseSpeed', 'baseSpAttack', 'baseSpDefense']
@@ -202,12 +208,12 @@ def evolve(x, evo_model, autoencoder_model, base_mon,
     ev_vals = []
     ev_types = []
     for split_idx in range(n_splits):
-        if split_idx == 0:
-            evo_model.eval()
+        if split_idx > 0:
+            x_in = x + torch.rand_like(x) * 0.1  # introduce some gaussian noise to the evolution process
         else:
-            evo_model.train()  # re-introduces noise from VAE to get slightly different evolutions
+            x_in = x
 
-        h_mu, h_std, y_evo_emb, y_type_pred, y_item_pred, y_level_pred = evo_model.forward(x)
+        y_evo_emb, y_type_pred, y_item_pred, y_level_pred = evo_model.forward(x_in)
         ev_type_logits = y_type_pred.cpu().detach()[0]
         ev_type = ev_types_list[int(np.argmax(ev_type_logits))]
 
@@ -411,9 +417,9 @@ def main(args):
                         int(max([mon_metadata[m][int_data[didx]] * z_std[didx] + z_mean[didx] for m in mon_list]))]
                        for didx in range(len(int_data))]
     max_learned_moves = max([len(mon_levelup_moveset[m]) for m in mon_list])
-    avg_learned_moves = np.average([len(mon_levelup_moveset[m]) for m in mon_list])
+    learned_moves_counts = sorted([len(mon_levelup_moveset[m]) for m in mon_list])
     max_tmhm_moves = max([len(mon_tmhm_moveset[m]) for m in mon_list])
-    avg_tmhm_moves = np.average([len(mon_tmhm_moveset[m]) for m in mon_list])
+    tmhm_moves_counts = sorted([len(mon_tmhm_moveset[m]) for m in mon_list])
     lvl_move_entries = {}
     for a in mon_levelup_moveset:
         for level, move in mon_levelup_moveset[a]:
@@ -448,8 +454,8 @@ def main(args):
     n_evo_types = len(ev_types_list)
     n_evo_items = len(ev_items_list)
     h = ae_hidden_dim // 2
-    evo_model = EvoNet(ae_hidden_dim, h,
-                       ae_hidden_dim, n_evo_types, n_evo_items,
+    evo_model = EvoNet(ae_hidden_dim, ae_hidden_dim,
+                       n_evo_types, n_evo_items,
                        device).to(device)
     evo_model.load_state_dict(torch.load(args.input_evo_model_fn, map_location=torch.device(device)))
     evo_model.eval()
@@ -458,6 +464,7 @@ def main(args):
     print("Sampling...")
     new_mon = []
     new_mon_embs = np.zeros((len(mon_list), ae_hidden_dim))
+    prop_types = {}
     while len(new_mon) < len(mon_list):
         # Sample from a distribution based on the center of the real 'mon embeddings.
         z = torch.mean(embs_mu.cpu(), dim=0) + torch.std(embs_mu.cpu(), dim=0) * torch.randn(ae_hidden_dim)
@@ -485,89 +492,52 @@ def main(args):
             evs_emb = [z]
             evs = [m]
 
+        # Check whether adding this throws off type balance too much.
+        type_balance = True
+        for ev in evs:
+            t = (ev['type1'], ev['type2'])
+            # The biggest proportion in the real distribution is NORMAL/NORMAL at just over 12%.
+            if t in prop_types and prop_types[t] / float(len(new_mon)) > 0.12:
+                type_balance = False
+                break
+
         # Add to population.
-        if len(new_mon) + len(evs) <= len(mon_list):
+        if type_balance and len(new_mon) + len(evs) <= len(mon_list):
             for idx in range(len(evs_emb)):
                 new_mon_embs[len(new_mon) + idx, :] = evs_emb[idx]
             new_mon.extend(evs)
+            for ev in evs:
+                t = (ev['type1'], ev['type2'])
+                if t not in prop_types:
+                    prop_types[t] = 0
+                prop_types[t] += 1
         else:
             global_vars['pop_idx'] -= len(evs)
     print("... done; sampled %d mon" % len(mon_list))
 
-    print("Choosing dynamic threshold for learned and TMHM moves to fit averages...")
-    lvl_thresh = 0.5
-    thresh_bounds = [0., 1.]
-    last_avg = None
-    done = False
-    while not done:
-        avg_n_mv = 0
-        for m in new_mon:
-            n_mv = 1  # Always keep highest conf move regardless of thresh.
-            for _, _, conf in m['levelup_moveset'][1:]:
-                if conf > lvl_thresh:
-                    n_mv += 1
-            avg_n_mv += n_mv
-        avg_n_mv /= len(new_mon)
-        if last_avg is not None and np.isclose(last_avg, avg_n_mv):  # done
-            done = True
-        elif np.isclose(avg_n_mv, avg_learned_moves):  # done
-            done = True
-        elif avg_n_mv > avg_learned_moves:  # thresh is too low
-            too_low_thresh = lvl_thresh
-            lvl_thresh = (thresh_bounds[1] + lvl_thresh) / 2
-            thresh_bounds[0] = too_low_thresh
-        else:  # thresh is too high
-            too_high_thresh = lvl_thresh
-            lvl_thresh = (thresh_bounds[0] + lvl_thresh) / 2
-            thresh_bounds[1] = too_high_thresh
-        last_avg = avg_n_mv
-    print("... done; achieved average %.2f(target %.2f) levelup moves with threshold %.4f" %
-          (last_avg, avg_learned_moves, lvl_thresh))
-
-    tmhm_thresh = 0.5
-    thresh_bounds = [0., 1.]
-    last_avg = None
-    done = False
-    while not done:
-        avg_n_mv = 0
-        for m in new_mon:
-            n_mv = 0
-            base_tmhm_moveset = get_mon_by_species_id(new_mon, m['evo_from'])['mon_tmhm_moveset'] if 'evo_from' in m else None
-            for idx in range(len(tmhm_moves_list)):
-                # Can be learned if this or the base can learn it.
-                if (m['mon_tmhm_moveset'][idx][1] > tmhm_thresh or
-                        (base_tmhm_moveset is not None and base_tmhm_moveset[idx][1] > tmhm_thresh)):
-                    n_mv += 1
-            avg_n_mv += n_mv
-        avg_n_mv /= len(new_mon)
-        if last_avg is not None and np.isclose(last_avg, avg_n_mv):  # done
-            done = True
-        elif np.isclose(avg_n_mv, avg_tmhm_moves):  # done
-            done = True
-        elif avg_n_mv > avg_tmhm_moves:  # thresh is too low
-            too_low_thresh = tmhm_thresh
-            tmhm_thresh = (thresh_bounds[1] + tmhm_thresh) / 2
-            thresh_bounds[0] = too_low_thresh
-        else:  # thresh is too high
-            too_high_thresh = tmhm_thresh
-            tmhm_thresh = (thresh_bounds[0] + tmhm_thresh) / 2
-            thresh_bounds[1] = too_high_thresh
-        last_avg = avg_n_mv
-    print("... done; achieved average %.2f(target %.2f) tmhm moves with threshold %.4f" %
-          (last_avg, avg_tmhm_moves, tmhm_thresh))
+    print("Assigning movesets...")
+    lvl_confs = [sum([conf for _, _, conf in m['levelup_moveset']])
+                 for m in new_mon]
+    lvl_n_moves = [0] * len(new_mon)
+    for idx in range(len(mon_list)):
+        lvl_n_moves[np.argsort(lvl_confs)[idx]] = learned_moves_counts[idx]
+    tmhm_confs = [sum([conf for _, conf in m['mon_tmhm_moveset']])
+                  for m in new_mon]
+    tmhm_n_moves = [0] * len(new_mon)
+    for idx in range(len(mon_list)):
+        tmhm_n_moves[np.argsort(tmhm_confs)[idx]] = tmhm_moves_counts[idx]
 
     n_to_show = 0  # DEBUG
-    for m in new_mon:  # Limit levelup and tmhm moves by new thresholds.
-        m['levelup_moveset'].sort(key=lambda x: x[2])  # Sort by confidence
-        keep_highest = [0] if 'evo_from' not in m else [0, 1]
+    for jdx in range(len(new_mon)):  # Limit levelup and tmhm moves by new thresholds.
+        m = new_mon[jdx]
+        m['levelup_moveset'].sort(key=lambda x: x[2], reverse=True)  # Sort by confidence
         m['levelup_moveset'] = [[m['levelup_moveset'][idx][0], m['levelup_moveset'][idx][1]]
-                                for idx in range(len(m['levelup_moveset']))
-                                if idx in keep_highest or m['levelup_moveset'][idx][2] > lvl_thresh]
+                                for idx in range(len(m['levelup_moveset']))][:lvl_n_moves[jdx]]
         base_tmhm_moveset = []
         if 'evo_from' in m:
             # Move not learned by base version is learned by this version at maximum of evo level
             base = get_mon_by_species_id(new_mon, m['evo_from'])
-            base_tmhm_moveset = base['mon_tmhm_moveset']
+            base_tmhm_moveset = base['mon_tmhm_moveset']  # Just a list by now.
             for lidx in range(len(m['levelup_moveset'])):
                 lvl, mv = m['levelup_moveset'][lidx]
                 learned_by_base = np.any([base['levelup_moveset'][ljdx][1] == mv
@@ -578,18 +548,20 @@ def main(args):
                             m['levelup_moveset'][lidx] = [max(lvl, ev_lvl), mv]
         m['levelup_moveset'].sort(key=lambda x: x[0])  # Re-sort by level.
         m['levelup_moveset'][0][0] = 1  # Learn first move at birth regardless.
-        m['mon_tmhm_moveset'] = [m['mon_tmhm_moveset'][idx][0] for idx in range(len(m['mon_tmhm_moveset']))
-                                 if m['mon_tmhm_moveset'][idx][1] > tmhm_thresh or
-                                 # By now, base tmhm moveset is just a list of moves, not including confs.
-                                 m['mon_tmhm_moveset'][idx][0] in base_tmhm_moveset]
+        m['mon_tmhm_moveset'].sort(key=lambda x: x[1], reverse=True)  # Sort by confidence
+        tmhm_moveset = base_tmhm_moveset[:]
+        tmhm_moveset.extend([m['mon_tmhm_moveset'][idx][0] for idx in range(len(m['mon_tmhm_moveset']))
+                                      if m['mon_tmhm_moveset'][idx][0] not in base_tmhm_moveset])
+        m['mon_tmhm_moveset'] = tmhm_moveset[:tmhm_n_moves[jdx]]
 
         # DEBUG
         if 'evolution' in m:
             n_to_show += len(m['evolution']) + 1
         if n_to_show > 0:
             n_to_show -= 1
-            print(m)
-            _ = input()  # DEBUG
+        #     print(m)
+        #     _ = input()  # DEBUG
+    print("... done")
 
     # Visualize sampled mon embeddings based on their NNs.
     print("Drawing TSNE visualization of new sampled mon embeddings...")
@@ -616,13 +588,160 @@ def main(args):
                 bbox_inches='tight')
     print("... done")
 
+    # Load the sprite network into memory.
+    sprite_model = SpriteNet(ae_hidden_dim, device).to(device)
+    if args.input_sprite_model_fn:
+        sprite_model.load_state_dict(torch.load(args.input_sprite_model_fn, map_location=torch.device(device)))
+    else:
+        print("WARNING: not creating fresh sprites; will load NN sprites over normal ones")
+
+    # Get input sprites for each new mon.
+    in_front = np.zeros((len(new_mon), 3, 64, 64))
+    in_back = np.zeros((len(new_mon), 3, 64, 64))
+    in_icon = np.zeros((len(new_mon), 3, 32, 32))
+    front_static = []
+    back_static = []
+    icon_static = []
+    for idx in range(len(mon_list)):
+        dists = [np.linalg.norm(new_mon_embs[idx, :] - embs_mu[jdx, :].cpu().numpy())
+                 for jdx in range(len(mon_list))]
+        nn_emb_idx = np.argsort(dists)[0]
+
+        mon_fn_name = mon_list[nn_emb_idx][len('SPECIES_'):].lower()
+        if args.input_sprite_model_fn:
+            front = transforms.ToTensor()(
+                Image.open('orig/graphics/%s.front.png' % mon_fn_name).convert("RGB").crop((0, 0, 64, 64)))
+            in_front[idx, :, :, :] = front
+            back = transforms.ToTensor()(
+                Image.open('orig/graphics/%s.back.png' % mon_fn_name).convert("RGB").crop((0, 0, 64, 64)))
+            in_back[idx, :, :, :] = back
+            icon = transforms.ToTensor()(
+                Image.open('orig/graphics/%s.icon.png' % mon_fn_name).convert("RGB").crop((0, 0, 32, 32)))
+            in_icon[idx, :, :, :] = icon
+        else:
+            front_static.append('orig/graphics/%s.front.png' % mon_fn_name)
+            back_static.append('orig/graphics/%s.back.png' % mon_fn_name)
+            icon_static.append('orig/graphics/%s.icon.png' % mon_fn_name)
+    in_front = torch.tensor(in_front).float().to(device)
+    in_back = torch.tensor(in_back).float().to(device)
+    in_icon = torch.tensor(in_icon).float().to(device)
+
+    # Load type->names
+    type_to_name_words = None
+    if args.name_by_type_word:
+        with open(args.name_by_type_word, 'r') as f:
+            type_to_name_words = json.load(f)
+
     # Replace species ids with species names for the purpose of swapping/ROM rewriting.
-    print("Replacing global ids with species ids for ROM map, then writing data to file...")
+    print("Replacing global ids with species ids for ROM map, generating and writing sprites, and then writing data to file...")
+    out_fns = []
     for idx in range(len(new_mon)):
+        if type_to_name_words is not None:
+            candidates1 = type_to_name_words[new_mon[idx]['type1']]
+            candidates2 = type_to_name_words[new_mon[idx]['type2']]
+            m = [c for c in candidates1 if c in candidates2]
+            if len(m) > 0:  # a word matches both types, so pick it
+                new_mon[idx]['name'] = m[0]
+            else:  # no word matches both types, so assign by primary
+                new_mon[idx]['name'] = candidates1[0]
+
+            for t in type_to_name_words:
+                if new_mon[idx]['name'] in type_to_name_words[t]:
+                    del type_to_name_words[t][type_to_name_words[t].index(new_mon[idx]['name'])]
+
+            new_mon[idx]['name'] = new_mon[idx]['name'].upper()
+            if len(new_mon[idx]['name']) <= 7:
+                new_mon[idx]['name'] += 'MON'
+            new_mon[idx]['name'] = new_mon[idx]['name'][:10]
+        else:
+            new_mon[idx]['name'] = "MON %d" % new_mon[idx]['species']
         new_mon[idx]['species'] = mon_list[new_mon[idx]['species']]
         if 'evolution' in new_mon[idx]:
             for jdx in range(len(new_mon[idx]['evolution'])):
                 new_mon[idx]['evolution'][jdx][0] = mon_list[new_mon[idx]['evolution'][jdx][0]]
+
+        # Sprites.
+        species_dir = new_mon[idx]['species'][len('SPECIES_'):].lower()
+        if species_dir == 'castform':
+            suffixes = ['_normal_form', '_rainy_form', '_sunny_form', '_snowy_form']
+        else:
+            suffixes = None
+        if species_dir == 'unown':
+            subdirs = list('abcdefghijklmnopqrstuvwxyz') + ['question_mark'] + ['exclamation_mark']
+        else:
+            subdirs = None
+        if not os.path.isdir('../graphics/pokemon/%s/' % species_dir):
+            print("WARNING: missing graphics/pokemon dir '%s'" % species_dir)
+        if args.input_sprite_model_fn:
+            front = sprite_model(torch.tensor(new_mon_embs[idx]).unsqueeze(0).float().to(device), in_front[idx, :])
+            back = sprite_model(torch.tensor(new_mon_embs[idx]).unsqueeze(0).float().to(device), in_back[idx, :])
+            icon = sprite_model(torch.tensor(new_mon_embs[idx]).unsqueeze(0).float().to(device), in_icon[idx, :])
+
+            imf = transforms.ToPILImage()(front.squeeze(0).detach().cpu())
+            imb = transforms.ToPILImage()(back.squeeze(0).detach().cpu())
+            im = transforms.ToPILImage()(icon.squeeze(0).detach().cpu())
+            im = im.resize((32, 32))
+            icon_target = Image.new('RGB', (32, 64))
+            icon_target.paste(im, (0, 0, 32, 32))
+            icon_target.paste(im, (0, 32, 32, 64))
+            front_anim_target = Image.new('RGB', (64, 128))
+            front_anim_target.paste(imf, (0, 0, 64, 64))
+            front_anim_target.paste(imf, (0, 64, 64, 128))
+            if suffixes is not None:
+                for suf in suffixes:
+                    imf.save('../graphics/pokemon/%s/front%s.png' % (species_dir, suf), mode='RGB')
+                    imb.save('../graphics/pokemon/%s/back%s.png' % (species_dir, suf), mode='RGB')
+                    front_anim_target.save('../graphics/pokemon/%s/anim_front%s.png' % (species_dir, suf), mode='RGB')
+                    out_fns.append('../graphics/pokemon/%s/front%s.png' % (species_dir, suf))
+                    out_fns.append('../graphics/pokemon/%s/back%s.png' % (species_dir, suf))
+                    out_fns.append('../graphics/pokemon/%s/anim_front%s.png' % (species_dir, suf))
+                icon_target.save('../graphics/pokemon/%s/icon.png' % species_dir, mode='RGB')
+                out_fns.append('../graphics/pokemon/%s/icon.png' % species_dir)
+            elif subdirs is not None:
+                for subdir in subdirs:
+                    imf.save('../graphics/pokemon/%s/%s/front.png' % (species_dir, subdir), mode='RGB')
+                    out_fns.append('../graphics/pokemon/%s/%s/front.png' % (species_dir, subdir))
+                    front_anim_target.save('../graphics/pokemon/%s/%s/anim_front.png' % (species_dir, subdir), mode='RGB')
+                    out_fns.append('../graphics/pokemon/%s/%s/anim_front.png' % (species_dir, subdir))
+                    imb.save('../graphics/pokemon/%s/%s/back.png' % (species_dir, subdir), mode='RGB')
+                    out_fns.append('../graphics/pokemon/%s/%s/back.png' % (species_dir, subdir))
+                    icon_target.save('../graphics/pokemon/%s/%s/icon.png' % (species_dir, subdir), mode='RGB')
+                    out_fns.append('../graphics/pokemon/%s/%s/icon.png' % (species_dir, subdir))
+            else:
+                imf.save('../graphics/pokemon/%s/front.png' % species_dir, mode='RGB')
+                out_fns.append('../graphics/pokemon/%s/front.png' % species_dir)
+                front_anim_target.save('../graphics/pokemon/%s/anim_front.png' % species_dir, mode='RGB')
+                out_fns.append('../graphics/pokemon/%s/anim_front.png' % species_dir)
+                imb.save('../graphics/pokemon/%s/back.png' % species_dir, mode='RGB')
+                out_fns.append('../graphics/pokemon/%s/back.png' % species_dir)
+                icon_target.save('../graphics/pokemon/%s/icon.png' % species_dir, mode='RGB')
+                out_fns.append('../graphics/pokemon/%s/icon.png' % species_dir)
+        else:
+            if suffixes is not None:
+                for suf in suffixes:
+                    os.system('cp %s ../graphics/pokemon/%s/front%s.png' % (front_static[idx], species_dir, suf))
+                    os.system('cp %s ../graphics/pokemon/%s/anim_front%s.png' % (front_static[idx], species_dir, suf))
+                    os.system('cp %s ../graphics/pokemon/%s/back%s.png' % (back_static[idx], species_dir, suf))
+                os.system('cp %s ../graphics/pokemon/%s/icon.png' % (icon_static[idx], species_dir))
+            elif subdirs is not None:
+                for subdir in subdirs:
+                    os.system('cp %s ../graphics/pokemon/%s/%s/front.png' % (front_static[idx], species_dir, subdir))
+                    os.system('cp %s ../graphics/pokemon/%s/%s/anim_front.png' % (front_static[idx], species_dir, subdir))
+                    os.system('cp %s ../graphics/pokemon/%s/%s/back.png' % (back_static[idx], species_dir, subdir))
+                    os.system('cp %s ../graphics/pokemon/%s/%s/icon.png' % (icon_static[idx], species_dir, subdir))
+            else:
+                os.system('cp %s ../graphics/pokemon/%s/front.png' % (front_static[idx], species_dir))
+                os.system('cp %s ../graphics/pokemon/%s/anim_front.png' % (front_static[idx], species_dir))
+                os.system('cp %s ../graphics/pokemon/%s/back.png' % (back_static[idx], species_dir))
+                os.system('cp %s ../graphics/pokemon/%s/icon.png' % (icon_static[idx], species_dir))
+    print("... done")
+
+    print("Running pngtopnm; will produce lots of output...")
+    for out_fn in out_fns:
+        print(out_fn)
+        os.system('pngtopnm %s | pnmquant 16 | pnmtopng > tmp.png' % out_fn)
+        os.system('mv tmp.png %s' % out_fn)
+    print("... done")
 
     # Output sampled mon structure into .json expected by the swapping script.
     d = {'mon_metadata': {}, 'mon_evolution': {}, 'mon_levelup_moveset': {}, 'mon_tmhm_moveset': {}}
@@ -673,10 +792,14 @@ if __name__ == '__main__':
                         help='the trained mon autoencoder weights')
     parser.add_argument('--input_evo_model_fn', type=str, required=True,
                         help='the trained mon evolver weights')
+    parser.add_argument('--input_sprite_model_fn', type=str, required=False,
+                        help='the trained sprite creation network')
     parser.add_argument('--output_fn', type=str, required=True,
                         help='the output json for the sampled mon')
     parser.add_argument('--no_evolve', action='store_true',
                         help='disable evolutions during sampling')
+    parser.add_argument('--name_by_type_word', type=str, required=False,
+                        help='json mapping types to potential names')
     args = parser.parse_args()
 
     main(args)

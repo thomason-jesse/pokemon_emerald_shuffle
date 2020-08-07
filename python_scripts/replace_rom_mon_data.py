@@ -252,7 +252,7 @@ def main(args):
                                         text += " (night). "
                                     else:
                                         text += '. '
-                                if type(ev_val) is int:
+                                elif type(ev_val) is int:
                                     if ev_type == 'EVO_BEAUTY':
                                         text += "Evolves when beauty %d. " % ev_val
                                     else:

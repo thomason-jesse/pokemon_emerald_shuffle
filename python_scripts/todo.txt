@@ -1,6 +1,5 @@
 
-- write readme
-
 - ROM changes
     - wally zigzagoon
     - birch zigzagoon
+    - fuss with battle frontier
