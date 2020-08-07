@@ -12,7 +12,7 @@ The other changes I have made in this repo do things like giving a national Pok�
 
 ## Shuffle Existing Pokémon
 
-What if GYM leaders used different types? Use this tool to create a mapping from original types to target types throughout the ROM, enabling, for example, ROCK->GHOST to make a spooky ROXANNE. Unlike a completely random shuffling tool, this script attempts to align Pokémon my stat total and the desired type map while preserving evolution lines.
+What if GYM leaders used different types? Use this tool to create a mapping from original types to target types throughout the ROM, enabling, for example, ROCK->GHOST to make a spooky ROXANNE. Unlike a completely random shuffling tool, this script attempts to align Pokémon by stat total and the desired type map while preserving evolution lines.
 
 First, we run a script that gathers relevant Pokémon metadata from the ROM source.
 
@@ -136,8 +136,6 @@ python replace_rom_mon_data.py --input_fn sampled_mon/new_mon.json
 
 ![The Pokédex entry for generated BURNINGMON](/python_scripts/screenshots/gen_pokedex_starter.png)
 
-![A party of six generated Pokémon](/python_scripts/screenshots/gen_party.png)
-
 Now that this new Pokémon metadata exists, we can also use the existing mapping scripts to generate a coherent ROM. Otherwise, all the new Pokémon are randomly assigned and will be hanging out in inappropriate places in the game.
 
 ```
@@ -149,7 +147,7 @@ python create_a_to_b_mapping.py \
  --tune_w_sa
 ```
 
-By setting `--type_mapping fixed`, we'll keep the existing type themes in the game, with Team Magma using FIRE and GROUND types, etc. Optionally, we could set `--type_mapping optimal`, which greedily attempts to form a type map that corresponds to the distribution of types in the sampled Pokémon. For example, if we sample many WATER types, it would be better to map NORMAL to WATER than NORMAL to NORMAL, since there are more NORMAL types than anything else in the original ROM.
+By setting `--type_mapping fixed`, we'll keep the existing type themes in the game, for example with Team Magma using FIRE and GROUND types. Optionally, we could set `--type_mapping optimal`, which greedily attempts to form a type map that corresponds to the distribution of types in the sampled Pokémon. For example, if we sample many WATER types, it would be better to map NORMAL to WATER than NORMAL to NORMAL, since there are more NORMAL types than anything else in the original ROM.
 
 Like above, we need to also create a good move map so hand-crafted movesets are preserved in power.
 
@@ -182,7 +180,7 @@ Name generation is currently just some GloVe nearest neighbors for each type, ge
 
 ![Generated LAWNMON and DRAINMON fight with horrible generated sprites](/python_scripts/screenshots/horrible_sprites.png)
 
-So I actually did this! The `train_sprite_network.py` script contains my half-baked modelling attempts to make front, back, and icon sprites. I never got this working well enough to be remotely passable, so aa better network would be great, and probably actually working with the 4 bit colormap images instead of converting them to / from full 8-bit RGB might make the process easier. Instead, what `sample_new_mon.py` does currently is assign a base sprite to a generated mon based on its nearest neighbor in the learned embedding space, and the color palette for whatever mon it's overwriting in the ROM is adopted. So, essentially, they're sprites of original Pokémon that are somehow similar to the generated ones, with random coloration. That could just, like, obviously be done better.
+The `train_sprite_network.py` script contains my half-baked modelling attempts to make front, back, and icon sprites. I never got this working well enough to be remotely passable, so a better network would be great, and probably actually working with the 4 bit colormap images instead of converting them to / from full 8-bit RGB might make the process easier. Instead, what `sample_new_mon.py` does currently is assign a base sprite to a generated mon based on its nearest neighbor in the learned embedding space, and the color palette for whatever mon it's overwriting in the ROM is adopted. So, essentially, they're sprites of original Pokémon that are somehow similar to the generated ones, with random coloration. That could just, like, obviously be done better.
 
 ### Better learned representations and evolutions
 
@@ -192,4 +190,4 @@ Also, I'm still not happy about the levelup and TMHM movesets that end up being 
 
 ### More complete ROM rewriting
 
-There are just some pieces of the ROM that would feel better if they were replaced but they're either tedious to track down or I lost motivation. For example, NORMAN gives WALLY ZIGZAGOON (or whatever now lives in its memory slot) instead of what ZIGZAGOON has been mapped to. And it would be nice if flavortext that mentions mon by name used thier new, sampled names instead. Plus, the Pokédex still uses the original memory of mon nicknames, heights, footprints and sprite placement and animations, all of which could be replaced or learned as part of the autoencoder.
+There are just some pieces of the ROM that would feel better if they were replaced but they're either tedious to track down or I lost motivation. For example, NORMAN gives WALLY ZIGZAGOON (or whatever now lives in its memory slot) instead of what ZIGZAGOON has been mapped to. And it would be nice if flavortext that mentions mon by name used their new, sampled names instead. Plus, the Pokédex still uses the original memory of mon nicknames, heights, footprints and sprite placement and animations, all of which could be replaced or learned as part of the autoencoder.
