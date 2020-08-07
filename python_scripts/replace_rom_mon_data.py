@@ -76,14 +76,17 @@ def main(args):
 
                 # Data entry.
                 #     [SPECIES_BULBASAUR]  = {{EVO_LEVEL, 16, SPECIES_IVYSAUR}},
+                # mon_evolution[species][idx] = [species, evo_type, evo_val]
                 if can_dump and not data_dumped:
                     line = ''
                     for species in mon_evolution:
                         if len(mon_evolution[species]) > 0:
                             n_edited_lines += 1
                             line += '%s[%s] = {%s},\n' % (tab_str, species,
-                                                          ', '.join(['{%s}' % ', '.join([str(s)
-                                                                                         for s in mon_evolution[species][idx]])
+                                                          ', '.join(['{%s, %s, %s}' %
+                                                                     (mon_evolution[species][idx][1],
+                                                                      str(mon_evolution[species][idx][2]),
+                                                                      mon_evolution[species][idx][0])
                                                                      for idx in range(len(mon_evolution[species]))]))
                     data_dumped = True
 
