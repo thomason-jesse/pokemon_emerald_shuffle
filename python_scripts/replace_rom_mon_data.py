@@ -179,11 +179,15 @@ def main(args):
 
                     # Create a line entry with all TMHM moves formatted.
                     # TMHM(TM06_TOXIC) | TMHM(TM09_BULLET_SEED) | ...
-                    n_edited_lines += len(mon_tmhm_moveset[curr_species])
-                    line = '%s[%s] = TMHM_LEARNSET(%s),\n' % (tab_str, curr_species,
-                                                              ' | \n'.join(['TMHM(%s_%s)' %
-                                                                          (tmhm_prefix[mv], mv[len('MOVE_'):])
-                                                                          for mv in mon_tmhm_moveset[curr_species]]))
+                    if len(mon_tmhm_moveset[curr_species]) > 0:
+                        n_edited_lines += len(mon_tmhm_moveset[curr_species])
+                        line = '%s[%s] = TMHM_LEARNSET(%s),\n' % (tab_str, curr_species,
+                                                                  ' | \n'.join(['TMHM(%s_%s)' %
+                                                                              (tmhm_prefix[mv], mv[len('MOVE_'):])
+                                                                              for mv in mon_tmhm_moveset[curr_species]]))
+                    else:
+                        n_edited_lines += 1
+                        line = '%s[%s] = TMHM_LEARNSET(0),\n' % (tab_str, curr_species)
 
                 elif '|' in line:
                     continue

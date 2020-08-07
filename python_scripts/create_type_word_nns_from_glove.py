@@ -4,6 +4,7 @@ import numpy as np
 
 
 def main(args):
+    disallow_list = ['color', 'white', 'black', 'red', 'blue', 'green', 'yellow', 'purple', 'pink', 'brown']
 
     with open(args.input_fn, 'r') as f:
         d = json.load(f)
@@ -34,7 +35,8 @@ def main(args):
         for idx in range(len(glove_ws)):
             w = glove_vs[idx]
             glove_sim[idx] = np.dot(v, w) / (np.linalg.norm(v) * np.linalg.norm(w))
-            if str(t_base) in str(glove_ws[idx]):
+            if (np.any([str(t_w) in str(glove_ws[idx]) for t_w in t_ws]) or
+                np.any([str(t_w) in str(glove_ws[idx]) for t_w in disallow_list])):
                 glove_sim[idx] = 0
             if str(glove_ws[idx])[-1] == 's' and str(glove_ws[idx])[:-1] in glove_ws:
                 glove_sim[idx] = 0

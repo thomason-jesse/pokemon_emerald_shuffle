@@ -15,18 +15,19 @@ class SpriteNet(torch.nn.Module):
         super(SpriteNet, self).__init__()
         self.input_dim = input_dim
 
-        self.down = torch.nn.ModuleList([torch.nn.Conv2d(in_channels=3, out_channels=input_dim//8, kernel_size=35).to(device),
-                                         torch.nn.Conv2d(in_channels=input_dim // 8, out_channels=input_dim // 4, kernel_size=16).to(device),
-                                         torch.nn.Conv2d(in_channels=input_dim // 4, out_channels=input_dim // 2, kernel_size=8).to(device),
-                                         torch.nn.Conv2d(in_channels=input_dim // 2, out_channels=128, kernel_size=8).to(device)])
+        self.down = torch.nn.ModuleList([torch.nn.Conv2d(in_channels=3, out_channels=6, kernel_size=10, stride=5).to(device),])
+                                         # torch.nn.Conv2d(in_channels=6, out_channels=12, kernel_size=4, stride=2).to(device)])
 
-        self.up = torch.nn.ModuleList([torch.nn.ConvTranspose2d(in_channels=input_dim, out_channels=input_dim // 2, kernel_size=8).to(device),
-                                       torch.nn.ConvTranspose2d(in_channels=input_dim // 2, out_channels=input_dim // 4, kernel_size=8).to(device),
-                                       torch.nn.ConvTranspose2d(in_channels=input_dim // 4, out_channels=input_dim // 8, kernel_size=16).to(device),
-                                       torch.nn.ConvTranspose2d(in_channels=input_dim // 8, out_channels=3, kernel_size=35).to(device)])
+        # self.project_down = torch.nn.Linear(6 * 11 * 11, input_dim)
+        # self.project_up = torch.nn.Linear(input_dim, 6 * 11 * 11)
 
-        # Tanh
-        self.tanh = torch.nn.Tanh()
+        # self.project = torch.nn.Linear(6 * 11 * 11, 6 * 11 * 11)
+
+        self.up = torch.nn.ModuleList([torch.nn.ConvTranspose2d(in_channels=6, out_channels=3, kernel_size=10, stride=6, padding=3).to(device),])
+                                      # torch.nn.ConvTranspose2d(in_channels=12, out_channels=6, kernel_size=4, stride=3).to(device),])
+                                       # torch.nn.ConvTranspose2d(in_channels=6, out_channels=3, kernel_size=10, stride=5, padding=3).to(device)])
+
+        self.relu = torch.nn.ReLU(True)
 
         # Params.
         # self.params = [item for sublist in [l.parameters() for l in self.down + self.up] for item in sublist]
@@ -37,22 +38,28 @@ class SpriteNet(torch.nn.Module):
         h = x_im
         for layer in self.down:
             h = layer(h)
-            h = self.tanh(h)
+            h = self.relu(h)
             # print('h down', h.shape)  # DEBUG
 
-        # Dot.
-        emb = x_emb.view(x_emb.size(0), self.input_dim, 1, 1)
-        # print('view emb', emb.shape)  # DEBUG
-        h = h * emb
+        # Projections and dot.
+        # h = h.view(x_im.shape[0], 6 * 11 * 11)
+        # print('view h down', h.shape)  # DEBUG
+        # h = self.project_down(h)
+        # h = h * x_emb
+        # print('h dotted', h.shape)  # DEBUG
+        # h = self.project_up(h)
+        # print('h up', h.shape)  # DEBUG
+        # h = h.view(x_im.shape[0], 6, 11, 11)
+        # print('view h up', h.shape)  # DEBUG
+
+        # Noise.
+        h = h + torch.rand_like(h) * 0.001
 
         # Up
         for layer in self.up:
             h = layer(h)
-            h = self.tanh(h)
+            h = self.relu(h)
             # print('h up', h.shape)  # DEBUG
-
-        # To pixel space.
-        h = h / 2 + 0.5
 
         return h
 
@@ -160,37 +167,37 @@ def main(args):
         if t % print_every == 0:
             print("epoch %d\tloss %.5f" % (t, loss.item()))
 
-            # Sample some mon
-            if t % mon_every == 0:
-                with torch.no_grad():
-                    model.eval()
-                    print("Forward pass losses:")
-                    for desc, target in [['front', true_front], ['back', true_back], ['icon', true_icon]]:
-                        pred = model(embs_mu, target)
-                        print('loss from %s' % desc)
-                        criterion.forward(pred, target, debug=True)
+        # Sample some mon
+        if t % mon_every == 0:
+            with torch.no_grad():
+                model.eval()
+                print("Forward pass losses:")
+                for desc, target in [['front', true_front], ['back', true_back], ['icon', true_icon]]:
+                    pred = model(embs_mu, target)
+                    print('loss from %s' % desc)
+                    criterion.forward(pred, target, debug=True)
 
-                    # Show sample evolution mon.
-                    print("Writing sample sprites")
-                    midx = np.random.choice(list(range(len(mon_list))))
-                    print(mon_list[midx], "sprites output")
-                    for s, ts in [['front', true_front], ['back', true_back], ['icon', true_icon]]:
-                        pr = model(embs_mu[midx].unsqueeze(0), ts[midx, :].unsqueeze(0))
-                        im = transforms.ToPILImage()(pr.squeeze(0).detach().cpu())
-                        im.save('%s.sample.%s.png' % (args.output_fn, s), mode='RGB')
-                        im = transforms.ToPILImage()(ts[midx].detach().cpu())
-                        im.save('%s.true.%s.png' % (args.output_fn, s), mode='RGB')
-                    print("... done")
-                    # Show sample drawn mon.
-                    print("Writing random draw sprites")
-                    z = torch.mean(embs_mu.cpu(), dim=0) + torch.std(embs_mu.cpu(), dim=0) * torch.randn(ae_hidden_dim)
-                    dists = [np.linalg.norm(z - embs_mu[jdx, :].cpu()) for jdx in range(len(mon_list))]
-                    nn_emb_idx = np.argsort(dists)[0]
-                    for s, tn in [['front', true_front], ['back', true_back], ['icon', true_icon]]:
-                        pr = model(z.unsqueeze(0).to(device), tn[nn_emb_idx, :].unsqueeze(0))
-                        im = transforms.ToPILImage()(pr.squeeze(0).detach().cpu())
-                        im.save('%s.random.%s.png' % (args.output_fn, s), mode='RGB')
-                    print("... done")
+                # Show sample evolution mon.
+                print("Writing sample sprites")
+                midx = np.random.choice(list(range(len(mon_list))))
+                print(mon_list[midx], "sprites output")
+                for s, ts in [['front', true_front], ['back', true_back], ['icon', true_icon]]:
+                    pr = model(embs_mu[midx].unsqueeze(0), ts[midx, :].unsqueeze(0))
+                    im = transforms.ToPILImage()(pr.squeeze(0).detach().cpu())
+                    im.save('%s.sample.%s.png' % (args.output_fn, s), mode='RGB')
+                    im = transforms.ToPILImage()(ts[midx].detach().cpu())
+                    im.save('%s.true.%s.png' % (args.output_fn, s), mode='RGB')
+                print("... done")
+                # Show sample drawn mon.
+                print("Writing random draw sprites")
+                z = torch.mean(embs_mu.cpu(), dim=0) + torch.std(embs_mu.cpu(), dim=0) * torch.randn(ae_hidden_dim)
+                dists = [np.linalg.norm(z - embs_mu[jdx, :].cpu()) for jdx in range(len(mon_list))]
+                nn_emb_idx = np.argsort(dists)[0]
+                for s, tn in [['front', true_front], ['back', true_back], ['icon', true_icon]]:
+                    pr = model(z.unsqueeze(0).to(device), tn[nn_emb_idx, :].unsqueeze(0))
+                    im = transforms.ToPILImage()(pr.squeeze(0).detach().cpu())
+                    im.save('%s.random.%s.png' % (args.output_fn, s), mode='RGB')
+                print("... done")
 
         # If this is the least loss achieved, write file.
         if t % save_every == 0 and (least_loss is None or loss < least_loss):
