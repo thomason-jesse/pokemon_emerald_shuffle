@@ -64,13 +64,13 @@ Now that you have your map, you can use it to rewrite ROM data.
 
 ```
 python a_to_b_mon_replacement.py \
- --input_fn mon_maps/spooky_rocks.moves.json
+ --input_fn mon_maps/spooky_rocks.moves.json \
  --lvl_increase 0.1
 ```
 
 This script overwrites wild Pokémon and trainer parties, sets new gift TMs, sets new gift Pokémon, and changes some flavortext in Gyms and the Elite Four to reflect the type mapping. The optional `--lvl_increase` parameter increases the level of trainer party Pokémon by this fraction, which I have found is helpful to make the game a bit tougher and counter-balance less finely tuned movesets in leaders.
 
-![Shuffled game battle with ELECTRIKE and SQUIRTLE versus QUILAVA and CHARMELEON](/screenshots/shuffle.png)
+![Shuffled game battle with ELECTRIKE and SQUIRTLE versus QUILAVA and CHARMELEON](/python_scripts/screenshots/shuffle.png)
 
 These shuffled games have an edge over full randomizers that can result in ROMs that are sort of goofy and unplayable, but they don't require someone to sit down and hand-craft the entire thing to have a mostly new game to play.
 
@@ -78,9 +78,9 @@ These shuffled games have an edge over full randomizers that can result in ROMs 
 
 The problem with any kind of shuffling of an existing ROM is that I know all these Pokémon already. To replicate the nostalgia I am after, I needed to encounter Pokémon I had never seen before, taking us back to guessing at types and being surprised by movesets.
 
-![A batle between two generated Pokémon, BURNINGMON and KILLMON](/screenshots/gen_battle.png)
+![A batle between two generated Pokémon, BURNINGMON and KILLMON](/python_scripts/screenshots/gen_battle.png)
 
-![A party of six generated Pokémon](/screenshots/gen_party.png)
+![A party of six generated Pokémon](/python_scripts/screenshots/gen_party.png)
 
 First, we train a neural autoencoder model to learn a low dimensional manifold that represents stats, move learnsets, types, abilities, and other Pokémon metadata. Once we have that learned network, we can sample entirely new Pokémon, and use the mapping tool above to insert them into the ROM in a coherent way that preserves stat totals and desired type maps.
 
@@ -126,7 +126,7 @@ python sample_new_mon.py \
  --name_by_type_word metadata/type_word_nns.json
 ```
 
-![The splash screen for generated BURNINGMON](/screenshots/gen_starter.png)
+![The splash screen for generated BURNINGMON](/python_scripts/screenshots/gen_starter.png)
 
 Now we rewrite the ROM with the newly generated metadata, essentially overwriting existing Pokémon in ROM memory with these newly sampled ones. One fun thing this script also does is make the Pokédex show something useful instead of just flavor text, letting you know the original Pokémon with the most similar base stats, how this sampled Pokémon evolves, and what moves it learns by leveling up.
 
@@ -134,9 +134,9 @@ Now we rewrite the ROM with the newly generated metadata, essentially overwritin
 python replace_rom_mon_data.py --input_fn sampled_mon/new_mon.json
 ```
 
-![The Pokédex entry for generated BURNINGMON](/screenshots/gen_pokedex_starter.png)
+![The Pokédex entry for generated BURNINGMON](/python_scripts/screenshots/gen_pokedex_starter.png)
 
-![A party of six generated Pokémon](/screenshots/gen_party.png)
+![A party of six generated Pokémon](/python_scripts/screenshots/gen_party.png)
 
 Now that this new Pokémon metadata exists, we can also use the existing mapping scripts to generate a coherent ROM. Otherwise, all the new Pokémon are randomly assigned and will be hanging out in inappropriate places in the game.
 
@@ -164,7 +164,7 @@ And finally, we swap appearances in the ROM based on this map.
 
 ```
 python a_to_b_mon_replacement.py \
- --input_fn mon_maps/spooky_rocks.moves.json
+ --input_fn mon_maps/sampled.moves.json \
  --lvl_increase 0.1
 ```
 
@@ -180,7 +180,7 @@ Name generation is currently just some GloVe nearest neighbors for each type, ge
 
 ### Generating Sprites
 
-![Generated LAWNMON and DRAINMON fight with horrible generated sprites](/screenshots/horrible_sprites.png)
+![Generated LAWNMON and DRAINMON fight with horrible generated sprites](/python_scripts/screenshots/horrible_sprites.png)
 
 So I actually did this! The `train_sprite_network.py` script contains my half-baked modelling attempts to make front, back, and icon sprites. I never got this working well enough to be remotely passable, so aa better network would be great, and probably actually working with the 4 bit colormap images instead of converting them to / from full 8-bit RGB might make the process easier. Instead, what `sample_new_mon.py` does currently is assign a base sprite to a generated mon based on its nearest neighbor in the learned embedding space, and the color palette for whatever mon it's overwriting in the ROM is adopted. So, essentially, they're sprites of original Pokémon that are somehow similar to the generated ones, with random coloration. That could just, like, obviously be done better.
 
