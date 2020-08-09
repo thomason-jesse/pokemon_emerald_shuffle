@@ -49,11 +49,14 @@ class Autoencoder(torch.nn.Module):
         # Encoder layers.
         self.linear1 = torch.nn.Linear(input_dim, 2 * hidden_dim).to(device)
         self.nonlinear1 = torch.nn.Tanh()
+        self.dropout1 = torch.nn.Dropout(p=0.5)
         self.linear2 = torch.nn.Linear(2 * hidden_dim, hidden_dim).to(device)
         self.nonlinear2 = torch.nn.Tanh()
+        self.dropout2 = torch.nn.Dropout(p=0.5)
         self.vae_linear = [torch.nn.Linear(hidden_dim, hidden_dim).to(device),
                            torch.nn.Linear(hidden_dim, hidden_dim).to(device)]
         self.std_relu = torch.nn.ReLU()
+        self.dropout3 = torch.nn.Dropout(p=0.5)
 
         # Decoder layers.
         self.int_data_linear = torch.nn.Linear(hidden_dim, n_int_data).to(device)
@@ -80,8 +83,10 @@ class Autoencoder(torch.nn.Module):
     def encode(self, x):
         h = self.linear1(x)
         h = self.nonlinear1(h)
+        h = self.dropout1(h)
         h = self.linear2(h)
         h = self.nonlinear2(h)
+        h = self.dropout2(h)
         h_mu = self.vae_linear[0](h)
         h_std = self.std_relu(self.vae_linear[1](h)) + epsilon * torch.ones_like(h_mu)
         # h_std = self.vae_linear[1](h)
@@ -117,8 +122,9 @@ class Autoencoder(torch.nn.Module):
             std_coeff = torch.rand_like(h_std)
         else:
             std_coeff = torch.ones_like(h_std)
-        y_pred = self.decode(h_mu + h_std * std_coeff)
-        # y_pred = self.decode(h_mu + torch.exp(h_std) * std_coeff)
+        h = h_mu + h_std * std_coeff
+        h = self.dropout3(h)
+        y_pred = self.decode(h)
         return y_pred, h_mu, h_std
 
 

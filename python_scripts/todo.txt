@@ -3,3 +3,6 @@
     - wally zigzagoon
     - birch zigzagoon
     - fuss with battle frontier
+
+- generation
+    - Could encode/decode tutor learnsets, or derive these from levelup

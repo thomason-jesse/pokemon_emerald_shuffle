@@ -45,7 +45,9 @@ def create_valid_mon(y, mon_metadata,
                      abilities_list, mon_to_infrequent_abilities,
                      move_list, lvl_move_avg, lvl_move_std, mon_to_infrequent_moves,
                      tmhm_move_list,
-                     egg_groups_list, growth_rates_list, gender_ratios_list):
+                     egg_groups_list,
+                     growth_rates_list, preserve_growth_rate,
+                     gender_ratios_list):
     idx = 0
     d = {'species': global_vars['pop_idx']}
 
@@ -172,7 +174,10 @@ def create_valid_mon(y, mon_metadata,
     d['eggGroups'] = [egg_groups_list[egg1_idx], egg_groups_list[egg2_idx]]
 
     # Growth rate.
-    gr_idx = np.argmax(y[idx:idx + len(growth_rates_list)])
+    if preserve_growth_rate is None:
+        gr_idx = np.argmax(y[idx:idx + len(growth_rates_list)])
+    else:
+        gr_idx = growth_rates_list.index(preserve_growth_rate)
     idx += len(growth_rates_list)
     d['growthRate'] = growth_rates_list[gr_idx]
 
@@ -233,7 +238,9 @@ def evolve(x, evo_model, autoencoder_model, base_mon,
                                  abilities_list, mon_to_infrequent_abilities,
                                  moves_list, lvl_move_avg, lvl_move_std, mon_to_infrequent_moves,
                                  tmhm_moves_list,
-                                 egg_group_list, growth_rates_list, gender_ratios_list)
+                                 egg_group_list,
+                                 growth_rates_list, base_mon['growthRate'],
+                                 gender_ratios_list)
         y_mon['evo_stages'] = base_mon['evo_stages'] - 1
         y_mon['evo_from'] = base_mon['species']
 
@@ -475,7 +482,9 @@ def main(args):
                              abilities_list, mon_to_infrequent_abilities,
                              moves_list, lvl_move_avg, lvl_move_std, mon_to_infrequent_moves,
                              tmhm_moves_list,
-                             egg_group_list, growth_rates_list, gender_ratios_list)
+                             egg_group_list,
+                             growth_rates_list, None,
+                             gender_ratios_list)
         global_vars['pop_idx'] += 1
 
         # Evolve.

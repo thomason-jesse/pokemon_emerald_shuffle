@@ -36,7 +36,7 @@ def main(args):
                 if ps[0] == "    [" and ps_close == "] =\n":
                     species_mon = "SPECIES_%s" % mon
                     mon_metadata[species_mon] = {"species": species_mon,
-                                                 "icon": "../graphics/pokemon/%s/icon.png" % mon.lower(),
+                                                 "icon": "orig/graphics/%s.icon.png" % mon.lower(),
                                                  "eggGroups": []}
                     # Handle weird sprites.
                     if species_mon == "SPECIES_UNOWN":
