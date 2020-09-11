@@ -40,6 +40,7 @@ forced_type2 = {'ITEM_FIRE_STONE': 'TYPE_FIRE', 'ITEM_DRAGON_SCALE': 'TYPE_DRAGO
 alpha = 0.55  # weight that type1 distributions contribute.
 beta = 0.45  # weight that type2 distributions contribute.
 uniform_weight = 0.05  # how much uniform distribution to mix in to smooth out real data.
+move_conf_jitter = 0.1  # how much weight to put on random noise in move learnsets off type-based averages
 
 
 def get_mon_by_species_id(mon_list, sid):
@@ -99,14 +100,20 @@ def create_valid_mon(y, mon_metadata,
         type1_idx = type_list.index(preserve_primary_type)
     type_v[type1_idx] = -float('inf')
     type2_idx = int(np.argmax(type_v))
+    type_v[type2_idx] = -float('inf')
+    type3_idx = int(np.argmax(type_v))
     idx += len(type_list)
     if type_list[type1_idx] == 'TYPE_NONE':
-        d['type1'] = d['type2'] = type_list[type2_idx]
+        d['type1'] = d['type2'] = d['type3'] = type_list[type2_idx]
     elif type_list[type2_idx] == 'TYPE_NONE':
-        d['type1'] = d['type2'] = type_list[type1_idx]
+        d['type1'] = d['type2'] = d['type3'] = type_list[type1_idx]
+    elif type_list[type3_idx] == 'TYPE_NONE':
+        d['type1'] = type_list[type1_idx]
+        d['type2'] = d['type3'] = type_list[type2_idx]
     else:
         d['type1'] = type_list[type1_idx]
         d['type2'] = type_list[type2_idx]
+        d['type3'] = type_list[type3_idx]
 
     # N evolutions.
     n_evolutions = np.argmax(y[idx:idx+3])
@@ -464,7 +471,7 @@ def sample_bayesian_evo_vector(y, base_mon, existing_ev_vals, existing_ev_types,
                                int_data_inc_mus_per_type, int_data_inc_stds_per_type,
                                p_levelup_g_type, p_tmhm_g_type):
 
-    # Decide on an evolution type.
+    # Decide on an evolution type based on prior distribution.
     ev_type = None
     while (ev_type is None or  # Choose if we haven't
            ('EVO_LEVEL' in ev_type and ev_type in existing_ev_types) or  # Choose at most one kind of each evo_level_*
@@ -472,9 +479,10 @@ def sample_bayesian_evo_vector(y, base_mon, existing_ev_vals, existing_ev_types,
         ev_type = np.random.choice(ev_types_list, p=p_ev_type)
     ev_type_logits = [1 if ev_types_list[idx] == ev_type else 0 for idx in range(len(ev_types_list))]
 
-    # Pick the evolution item conditioned on mon type.
+    # Pick the evolution item conditioned on base mon types.
     p_ev_item = [alpha * p_ev_item_g_type[type_list.index(base_mon['type1'])][idx] +
-                 beta * p_ev_item_g_type[type_list.index(base_mon['type1'])][idx] for idx in range(len(ev_items_list))]
+                 beta / 2. * p_ev_item_g_type[type_list.index(base_mon['type2'])][idx] +
+                 beta / 2. * p_ev_item_g_type[type_list.index(base_mon['type3'])][idx] for idx in range(len(ev_items_list))]
     ev_item = None
     while ev_item is None or (ev_type == 'EVO_ITEM' and ev_item in existing_ev_vals):  # Choose unique evo item
         ev_item = np.random.choice(ev_items_list, p=p_ev_item)
@@ -485,19 +493,28 @@ def sample_bayesian_evo_vector(y, base_mon, existing_ev_vals, existing_ev_types,
     y_evo_type1 = base_mon['type1']
     y_evo_type2 = base_mon['type2']
 
+    # Set types based on evolution style.
     # Set type2 to chosen evo_item if it forces a type change.
     if ev_type == 'EVO_ITEM' and ev_item in forced_type2:
-        idx_base = len(int_data)
-        for idx in range(len(type_list)):
-            if type_list[idx] == y_evo_type1:
-                y_evo[idx_base + idx] = 1
-            elif type_list[idx] == forced_type2[ev_item]:
-                y_evo[idx_base + idx] = 0.5
-            else:
-                y_evo[idx_base + idx] = 0
-        if y_evo_type1 == forced_type2[ev_item]:  # if primary type was already item-associated, force solid type
-            y_evo[idx_base + type_list.index('TYPE_NONE')] = 1
         y_evo_type2 = forced_type2[ev_item]
+        # Set type2 <- type3 if any other kind of evo and this is final stage.
+    elif base_mon['evo_stages'] == 1:
+        y_evo_type2 = base_mon['type3']
+    y_evo_type3 = base_mon['type3'] if base_mon['type3'] not in [y_evo_type1, y_evo_type2] else 'TYPE_NONE'
+
+    idx_base = len(int_data)
+    for idx in range(len(type_list)):
+        if type_list[idx] == y_evo_type1:
+            y_evo[idx_base + idx] = 1
+        elif type_list[idx] == y_evo_type2:
+            y_evo[idx_base + idx] = 0.75
+        elif type_list[idx] == y_evo_type3:
+            y_evo[idx_base + idx] = 0.5
+        else:
+            y_evo[idx_base + idx] = 0
+    # If primary type is redundant with secondary, promote NONE for decoding.
+    if y_evo_type1 == y_evo_type2:
+        y_evo[idx_base + type_list.index('TYPE_NONE')] = 1
 
     # Add to base stats conditioned on target evo type.
     z = np.random.normal(size=len(int_data))
@@ -507,17 +524,25 @@ def sample_bayesian_evo_vector(y, base_mon, existing_ev_vals, existing_ev_types,
                        (alpha * int_data_inc_mus_per_type[type_list.index(y_evo_type1)][idx] +
                         beta * int_data_inc_mus_per_type[type_list.index(y_evo_type2)][idx]))
 
-    # Add to move confidence by weighting in the distribution of new types with no additional jitter.
+    # Add to move confidence by weighting in the distribution of new types with additional jitter.
     levelup_p = [alpha * p_levelup_g_type[type_list.index(y_evo_type1)][idx] +
                  beta * p_levelup_g_type[type_list.index(y_evo_type2)][idx] for idx in range(len(moves_list))]
-    idx_base = len(int_data) + 2 * len(type_list) + 3 + len(abilities_list)
+    uniform_rand = np.random.uniform(size=len(moves_list))
+    uniform_rand /= sum(uniform_rand)
+    levelup_p = [(1 - move_conf_jitter) * levelup_p[idx] + move_conf_jitter * uniform_rand[idx]
+                 for idx in range(len(moves_list))]
+    idx_base = len(int_data) + len(type_list) + 3 + len(abilities_list)
     for idx in range(len(moves_list)):
         y_evo[idx_base + idx] = 0.5 * y_evo[idx_base + idx] + 0.5 * levelup_p[idx]
 
     # Same for TMHM.
     tmhm_p = [alpha * p_tmhm_g_type[type_list.index(y_evo_type1)][idx] +
               beta * p_tmhm_g_type[type_list.index(y_evo_type2)][idx] for idx in range(len(tmhm_moves_list))]
-    idx_base = len(int_data) + 2 * len(type_list) + 3 + len(abilities_list) + len(moves_list)
+    uniform_rand = np.random.uniform(size=len(tmhm_moves_list))
+    uniform_rand /= sum(uniform_rand)
+    tmhm_p = [(1 - move_conf_jitter) * tmhm_p[idx] + move_conf_jitter * uniform_rand[idx]
+              for idx in range(len(tmhm_moves_list))]
+    idx_base += len(moves_list)
     for idx in range(len(tmhm_moves_list)):
         y_evo[idx_base + idx] = 0.5 * y_evo[idx_base + idx] + 0.5 * tmhm_p[idx]
 
@@ -541,8 +566,10 @@ def sample_bayesian_mon_vector(type_list, abilities_list, moves_list, tmhm_moves
     # Draw types first, on which most things will be conditioned.
     # Type1 is drawn from the prior distribution of in-game types.
     # Type2 is drawn from the posterior distribution given type1.
+    # Type3 is drawn given type1; type2/3 function together but 3 becomes secondary (official) in final levelup ev.
     d['type1'] = np.random.choice(type_list, p=p_type1)
     d['type2'] = np.random.choice(type_list, p=p_type2_g_type1[type_list.index(d['type1'])])
+    d['type3'] = np.random.choice(type_list, p=p_type2_g_type1[type_list.index(d['type1'])])
 
     # Draw numeric stats.
     # For each type, we have a mean and stdev per stat.
@@ -551,42 +578,52 @@ def sample_bayesian_mon_vector(type_list, abilities_list, moves_list, tmhm_moves
     #   z_s*(alpha*type_1(s_std) + beta*type_2(s_std)) + (alpha*type_1(s_mu) + beta*type_2(s_mu))
     z = np.random.normal(size=len(int_data))
     type2 = d['type2'] if d['type2'] != 'TYPE_NONE' else d['type1']
+    type3 = d['type3'] if d['type3'] != 'TYPE_NONE' else type2
     for idx in range(len(int_data)):
         d[int_data[idx]] = (z[idx] * (alpha * int_data_stds_per_type[type_list.index(d['type1'])][idx] +
-                                      beta * int_data_stds_per_type[type_list.index(type2)][idx]) +
+                                      beta / 2. * int_data_stds_per_type[type_list.index(type2)][idx] +
+                                      beta / 2. * int_data_stds_per_type[type_list.index(type3)][idx]) +
                             (alpha * int_data_mus_per_type[type_list.index(d['type1'])][idx] +
-                             beta * int_data_mus_per_type[type_list.index(type2)][idx]))
+                             beta / 2. * int_data_mus_per_type[type_list.index(type2)][idx] +
+                             beta / 2. * int_data_mus_per_type[type_list.index(type3)][idx]))
 
     # Determine number of evolutions based on stat total.
     stat_total = sum([d[s] for s in stat_data])
-    n_evo = int(evo_lr.predict([[stat_total]]))
+    # sub [0, 0.75] stddev from total bc classifier predicts low.
+    n_evo = int(evo_lr.predict([[stat_total - len(stat_data) * np.random.rand() * 0.75]]))
     d['evo_stages'] = int(np.round(n_evo))
 
     # Determine abilities conditioned on types.
     ability_p = [alpha * p_ability_g_type[type_list.index(d['type1'])][idx] +
-                 beta * p_ability_g_type[type_list.index(type2)][idx] for idx in range(len(abilities_list))]
+                 beta / 2. * p_ability_g_type[type_list.index(type2)][idx] +
+                 beta / 2. * p_ability_g_type[type_list.index(type3)][idx] for idx in range(len(abilities_list))]
     abilities = list(np.random.choice(abilities_list, p=ability_p, replace=False, size=2))
     d['abilities'] = abilities
 
     # Determine levelup move confidences conditioned on types with a little jitter noise.
     levelup_p = [alpha * p_levelup_g_type[type_list.index(d['type1'])][idx] +
-                 beta * p_levelup_g_type[type_list.index(type2)][idx] for idx in range(len(moves_list))]
+                 beta / 2. * p_levelup_g_type[type_list.index(type2)][idx] +
+                 beta / 2. * p_levelup_g_type[type_list.index(type3)][idx] for idx in range(len(moves_list))]
     uniform_rand = np.random.uniform(size=len(moves_list))
     uniform_rand /= sum(uniform_rand)
-    levelup_p = [0.9 * levelup_p[idx] + 0.1 * uniform_rand[idx] for idx in range(len(moves_list))]
+    levelup_p = [(1 - move_conf_jitter) * levelup_p[idx] + move_conf_jitter * uniform_rand[idx]
+                 for idx in range(len(moves_list))]
     d['levelup_confs'] = levelup_p
 
     # Determine TMHM move learning confidence conditioned on types with a little jitter noise.
     tmhm_p = [alpha * p_tmhm_g_type[type_list.index(d['type1'])][idx] +
-                 beta * p_tmhm_g_type[type_list.index(type2)][idx] for idx in range(len(tmhm_moves_list))]
+              beta / 2. * p_tmhm_g_type[type_list.index(type2)][idx] +
+              beta / 2. * p_tmhm_g_type[type_list.index(type3)][idx] for idx in range(len(tmhm_moves_list))]
     uniform_rand = np.random.uniform(size=len(tmhm_moves_list))
     uniform_rand /= sum(uniform_rand)
-    tmhm_p = [0.9 * tmhm_p[idx] + 0.1 * uniform_rand[idx] for idx in range(len(tmhm_moves_list))]
+    tmhm_p = [(1 - move_conf_jitter) * tmhm_p[idx] + move_conf_jitter * uniform_rand[idx]
+              for idx in range(len(tmhm_moves_list))]
     d['tmhm_confs'] = tmhm_p
 
     # Determine egg groups given types.
     egg_p = [alpha * p_egg_g_type[type_list.index(d['type1'])][idx] +
-                 beta * p_egg_g_type[type_list.index(type2)][idx] for idx in range(len(egg_group_list))]
+             beta / 2. * p_egg_g_type[type_list.index(type2)][idx] +
+             beta / 2. * p_egg_g_type[type_list.index(type3)][idx] for idx in range(len(egg_group_list))]
     eggGroups = list(np.random.choice(egg_group_list, p=egg_p, replace=False, size=2))
     d['eggGroups'] = eggGroups
 
@@ -609,6 +646,8 @@ def sample_bayesian_mon_vector(type_list, abilities_list, moves_list, tmhm_moves
         if type_list[idx] == d['type1']:
             y.append(1)
         elif type_list[idx] == d['type2']:
+            y.append(0.75)
+        elif type_list[idx] == d['type3']:
             y.append(0.5)
         else:
             y.append(0)
@@ -1233,12 +1272,14 @@ def main(args):
                 os.system('cp %s ../graphics/pokemon/%s/icon.png' % (icon_static[idx], species_dir))
     print("... done")
 
-    print("Running pngtopnm; will produce lots of output...")
+    if len(out_fns) > 0:
+        print("Running pngtopnm; will produce lots of output...")
     for out_fn in out_fns:
         print(out_fn)
         os.system('pngtopnm %s | pnmquant 16 | pnmtopng > tmp.png' % out_fn)
         os.system('mv tmp.png %s' % out_fn)
-    print("... done")
+    if len(out_fns) > 0:
+        print("... done")
 
     # Output sampled mon structure into .json expected by the swapping script.
     d = {'mon_metadata': {}, 'mon_evolution': {}, 'mon_levelup_moveset': {}, 'mon_tmhm_moveset': {}}
