@@ -791,7 +791,7 @@ def main(args):
         # Sprite comes from nearest stat neighbor.
         dists = [np.linalg.norm([(new_mon[new_mon_keys[idx]][stat_data[sidx]] - z_mean[sidx]) / z_std[sidx]
                                  - mon_metadata[mon_list[jdx]][stat_data[sidx]]
-                                 for sidx in range(len(stat_data))]) for jdx in range(len(mon_list))]
+                                 for sidx in range(len(stat_data))], ord=1) for jdx in range(len(mon_list))]
         nn_emb_idx = np.argsort(dists)[0]
         mon_fn_name = mon_metadata[mon_list[nn_emb_idx]]['species'][len('SPECIES_'):].lower()
         front_static.append('orig/graphics/%s.front.png' % mon_fn_name)
@@ -799,18 +799,17 @@ def main(args):
         icon_static.append('orig/graphics/%s.icon.png' % mon_fn_name)
         print(new_mon[new_mon_keys[idx]], 'sprite', mon_fn_name)  # DEBUG
         # Colors come from nearest stat neighbor with a matching type.
-        dists = [np.linalg.norm([(new_mon[new_mon_keys[idx]][stat_data[sidx]] - z_mean[sidx]) / z_std[sidx]
-                                 - mon_metadata[mon_list[jdx]][stat_data[sidx]]
-                                 for sidx in range(len(stat_data))]) /
+        dists = [np.power(np.linalg.norm([(new_mon[new_mon_keys[idx]][stat_data[sidx]] - z_mean[sidx]) / z_std[sidx]
+                                          - mon_metadata[mon_list[jdx]][stat_data[sidx]]
+                                          for sidx in range(len(stat_data))], ord=1), 1. /
                  (len({new_mon[new_mon_keys[idx]]['type1'], new_mon[new_mon_keys[idx]]['type2']}.intersection(
-                     {mon_metadata[mon_list[jdx]]['type1'], mon_metadata[mon_list[jdx]]['type2']})) + 1)
+                     {mon_metadata[mon_list[jdx]]['type1'], mon_metadata[mon_list[jdx]]['type2']})) + 1))
                  for jdx in range(len(new_mon_keys))]
         nn_emb_idx = np.argsort(dists)[0]
         mon_fn_name = mon_metadata[mon_list[nn_emb_idx]]['species'][len('SPECIES_'):].lower()
         normal_color_static.append('orig/graphics/%s.normal.pal' % mon_fn_name)
         shiny_color_static.append('orig/graphics/%s.shiny.pal' % mon_fn_name)
         print('color', mon_fn_name)  # DEBUG
-        _ = input()  # DEBUG
 
     # Load type->names
     type_to_name_words = None
@@ -851,6 +850,11 @@ def main(args):
 
         if suffixes is not None:
             for suf in suffixes:
+                # os.system('cp ../graphics/pokemon/%s/normal%s.pal orig/graphics/%s.normal.pal' %
+                #           (species_dir, suf, species_dir))
+                # os.system('cp ../graphics/pokemon/%s/shiny%s.pal orig/graphics/%s.shiny.pal' %
+                #           (species_dir, suf, species_dir))
+
                 os.system('cp %s ../graphics/pokemon/%s/front%s.png' % (front_static[idx], species_dir, suf))
                 os.system('cp %s ../graphics/pokemon/%s/anim_front%s.png' % (front_static[idx], species_dir, suf))
                 os.system('cp %s ../graphics/pokemon/%s/back%s.png' % (back_static[idx], species_dir, suf))
@@ -859,15 +863,23 @@ def main(args):
             os.system('cp %s ../graphics/pokemon/%s/icon.png' % (icon_static[idx], species_dir))
         elif subdirs is not None:
             for subdir in subdirs:
+                # os.system('cp ../graphics/pokemon/%s/normal.pal orig/graphics/%s.normal.pal' %
+                #           (species_dir, species_dir))
+                # os.system('cp ../graphics/pokemon/%s/shiny.pal orig/graphics/%s.shiny.pal' %
+                #           (species_dir, species_dir))
+
                 os.system('cp %s ../graphics/pokemon/%s/%s/front.png' % (front_static[idx], species_dir, subdir))
                 os.system(
                     'cp %s ../graphics/pokemon/%s/%s/anim_front.png' % (front_static[idx], species_dir, subdir))
                 os.system('cp %s ../graphics/pokemon/%s/%s/back.png' % (back_static[idx], species_dir, subdir))
                 os.system('cp %s ../graphics/pokemon/%s/%s/icon.png' % (icon_static[idx], species_dir, subdir))
-                os.system('cp %s ../graphics/pokemon/%s/%s/normal.pal' %
-                          (normal_color_static[idx], species_dir, subdir))
-                os.system('cp %s ../graphics/pokemon/%s/%s/shiny.pal' % (shiny_color_static[idx], species_dir, subdir))
+                os.system('cp %s ../graphics/pokemon/%s/normal.pal' %
+                          (normal_color_static[idx], species_dir))  # unown pal files at root
+                os.system('cp %s ../graphics/pokemon/%s/shiny.pal' % (shiny_color_static[idx], species_dir,))
         else:
+            # os.system('cp ../graphics/pokemon/%s/normal.pal orig/graphics/%s.normal.pal' % (species_dir, species_dir))
+            # os.system('cp ../graphics/pokemon/%s/shiny.pal orig/graphics/%s.shiny.pal' % (species_dir, species_dir))
+
             os.system('cp %s ../graphics/pokemon/%s/front.png' % (front_static[idx], species_dir))
             os.system('cp %s ../graphics/pokemon/%s/anim_front.png' % (front_static[idx], species_dir))
             os.system('cp %s ../graphics/pokemon/%s/back.png' % (back_static[idx], species_dir))
